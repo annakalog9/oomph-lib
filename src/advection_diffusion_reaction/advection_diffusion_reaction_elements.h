@@ -581,6 +581,38 @@ namespace oomph
     }
 
 
+    /// Return FE representation of function value c_i(s) at local coordinate s and
+    /// at time level t (t=0 = present; t > 0: history, or auxiliary)
+    inline double interpolated_c_adv_diff_react(const unsigned &t,
+                                                const Vector<double>& s,
+                                                const unsigned& i) const
+    {
+      // Find number of nodes
+      unsigned n_node = nnode();
+
+      // Get the nodal index at which the unknown is stored
+      unsigned c_nodal_index = c_index_adv_diff_react(i);
+
+      // Local shape function
+      Shape psi(n_node);
+
+      // Find values of shape function
+      shape(s, psi);
+
+      // Initialise value of u
+      double interpolated_c = 0.0;
+
+      // Loop over the local nodes and sum
+      for (unsigned l = 0; l < n_node; l++)
+      {
+       interpolated_c += nodal_value(t,l, c_nodal_index) * psi[l];
+      }
+
+      return (interpolated_c);
+    }
+
+
+    
     /// Self-test: Return 0 for OK
     unsigned self_test();
 
