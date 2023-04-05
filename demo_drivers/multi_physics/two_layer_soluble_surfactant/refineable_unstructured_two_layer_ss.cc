@@ -67,7 +67,7 @@ namespace oomph
 
 namespace Control_Parameters
 {
- bool Periodic_BCs = false;//true;
+ bool Periodic_BCs = false; //true;
 }
 
   
@@ -256,6 +256,39 @@ namespace Global_Physical_Variables
 } //end of oomph namespace
 
 
+
+//A Comparison operator for the boundary nodes
+class CompareNodeCoordinates
+{
+public:
+///The actual comparison operator
+ int operator() (Node* const &node1_pt,
+                 Node* const &node2_pt)
+  {
+   unsigned n_dim = node1_pt->ndim();
+   if(n_dim != node2_pt->ndim())
+    {
+     throw OomphLibError("Can't compare two nodes of different dimension",
+                         "CompareNodeCoordinates::operator()",
+                         OOMPH_EXCEPTION_LOCATION);
+    }
+
+   //Make sure to handle the finite precision problems
+   //associated with coordinates!
+   unsigned i=0;
+   //const double tol = 3.0e-7;
+   const double tol = 4.0e-7;
+   while((i < n_dim) && (std::abs(node1_pt->x(i) - node2_pt->x(i)) < tol)) 
+    {++i;}
+   //If we've got to the end, they are the same so return false
+   if(i==n_dim) {return false;}
+   
+   //Otherwise
+   return node1_pt->x(i) < node2_pt->x(i);
+  }
+};
+
+
 //==start_of_specific_element_class=============================
 /// Element class used to insist that the vertical positions of
 /// the periodic nodes coincide.
@@ -442,6 +475,31 @@ public:
           allow_automatic_creation_of_vertices_on_boundaries,
           comm_pt) {}
 
+ //Custom override
+ bool update_polygon_custom(TriangleMeshPolygon*& polygon_pt)
+  {
+   //Find the number of polylines
+   const unsigned n_polyline = polygon_pt->npolyline();
+   TriangleMeshPolyLine* polyline1_pt=0, *polyline3_pt=0;
+   
+   for(unsigned n=0;n<n_polyline;++n)
+    {
+     //Find the polylin
+     TriangleMeshPolyLine* polyline_pt=polygon_pt->polyline_pt(n);
+     unsigned boundary_id = polyline_pt->boundary_id();
+     if(boundary_id==1) {polyline1_pt = polyline_pt;}
+     if(boundary_id==3) {polyline3_pt = polyline_pt;}
+    }
+
+   //Now let's see what we have
+   std::cout << "Polyline 1\n";
+   polyline1_pt->output(std::cout);
+   std::cout << "Polyline 3\n";
+   polyline3_pt->output(std::cout);
+   
+
+  }
+ 
  //Destructor 
  virtual ~RefineableSolidTwoLayerTriangleMesh () {}
 
@@ -577,6 +635,42 @@ public:
     }
   }
 
+ /// Setup periodic boundaries
+ void setup_periodic_boundaries()
+  {
+    //Now we need to make the boundaries periodic. Boundary 1 is made periodic from Boundary 3
+    //Let's load in the boundary nodes
+    Vector<Node*> boundary_nodes1, boundary_nodes3;
+    unsigned n_boundary_node1 = Bulk_mesh_pt->nboundary_node(1);
+    unsigned n_boundary_node3 = Bulk_mesh_pt->nboundary_node(3);
+
+    if(n_boundary_node1 != n_boundary_node3)
+     {
+      std::cout << "Problem: trying to make boundaries periodic with different numbers of nodes\n";
+     }
+    
+    
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {boundary_nodes1.push_back(Bulk_mesh_pt->boundary_node_pt(1,n));}
+    for(unsigned n=0;n<n_boundary_node3;++n)
+     {boundary_nodes3.push_back(Bulk_mesh_pt->boundary_node_pt(3,n));}
+    
+    //Sort them
+    std::sort(boundary_nodes1.begin(),boundary_nodes1.end(),CompareNodeCoordinates());
+    std::sort(boundary_nodes3.begin(),boundary_nodes3.end(),CompareNodeCoordinates());
+    
+    //Now we can loop over the nodes and make them periodic:
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {
+      std::cout << n << " "  << boundary_nodes1[n]->x(1) << " " << boundary_nodes3[n]->x(1) << "\n";
+     }
+
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {
+      boundary_nodes1[n]->make_periodic(boundary_nodes3[n]);
+     }
+  }
+ 
 
  /// Update the problem specs before solve (empty)
   void actions_before_newton_solve() {}
@@ -649,10 +743,11 @@ public:
  void actions_after_adapt()
   {
 
+   Bulk_mesh_pt->output("crap.dat",3);
+   
     // Determine number of bulk elements in lower/upper fluids
     const unsigned n_lower = Bulk_mesh_pt->nlower();
     const unsigned n_upper = Bulk_mesh_pt->nupper();
-    
     
     
     // Loop over bulk elements in lower fluid
@@ -756,6 +851,9 @@ public:
     
     if(Control_Parameters::Periodic_BCs)
       {
+       //Need to reset periodic boundary conditions on the boundaries...
+       this->setup_periodic_boundaries();
+       
 	//Create the dependent position elements
 	this->create_dependent_position_elements();
       }
@@ -1347,61 +1445,169 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  // four separate polylines
  //------------------------
  Vector<TriangleMeshCurveSection*> boundary_polyline_pt(4);
+
+ //Specify how many elements in the horizontal direction and vertical direction in each layer
+ //This is rquired to ensure that we have the same number of nodes on each side
+ //and so the boundaries can be made periodic
+ unsigned n_x = 10;
+ unsigned n_y1 = 4;
+ unsigned n_y2 = 4;
+
+  if(n_x < 2) {std::cout  << "n_x needs to be 2 or more\n";}
+  if(n_y1 < 2) {std::cout << "n_y1 needs to be 2 or more\n";}
+  if(n_y2 < 2) {std::cout << "n_y2 needs to be 2 or more\n";}
  
- // Each polyline only has three vertices -- provide storage for their
+ 
+ // Each horizontal polyline has n_x +1 vertices -- provide storage for their
  // coordinates
- Vector<Vector<double> > vertex_coord(3);
- for(unsigned i=0;i<3;i++)
+ Vector<Vector<double> > vertex_coord_h(n_x+1);
+ for(unsigned i=0;i<(n_x+1);i++)
+  {
+   vertex_coord_h[i].resize(2);
+  }
+
+ //Each vertical polyline has n_y1 + n_y2 +1 points
+ unsigned n_vertical_points = n_y1 + n_y2 + 1;
+
+ Vector<Vector<double> > vertex_coord(n_vertical_points);
+ for(unsigned i=0;i<n_vertical_points;i++)
   {
    vertex_coord[i].resize(2);
   }
 
+ 
  // First polyline: Inflow
+ double dy_1 = h/((double)(n_y1));
+ double dy_2 = (H-h)/((double)(n_y2));
+
+//Lower film - lower left corner
  vertex_coord[0][0]=0.0;
  vertex_coord[0][1]=0.0;
- vertex_coord[1][0]=0.0;
- vertex_coord[1][1]= h;
- vertex_coord[2][0]=0.0;
- vertex_coord[2][1]= H;
+ //Add intermediate nodes
+ for(unsigned i=1;i<n_y1;++i)
+  {
+   vertex_coord[i][0] = 0.0;
+   vertex_coord[i][1] = i*dy_1;
+  }
+ //Interface height
+ vertex_coord[n_y1][0] = 0.0;
+ vertex_coord[n_y1][1] = h;
+
+ 
+ //Upper film
+ for(unsigned i=1;i<n_y2;++i)
+  {
+   vertex_coord[n_y1+i][0] = 0.0;
+   vertex_coord[n_y1+i][1] = h + i*dy_2;
+  }
+ 
+ //Override to avoid FP error
+ vertex_coord[n_y1+n_y2][0] = 0.0;
+ vertex_coord[n_y1+n_y2][1] = H;
+
+
+ /*
+ vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=0.0;
+ vertex_coord_h[1][0]=0.0;
+ vertex_coord_h[1][1]= h;
+ vertex_coord_h[2][0]=0.0;
+ vertex_coord_h[2][1]= H;*/
+
+ 
  
  // Build the 1st boundary polyline
  boundary_polyline_pt[0] = new TriangleMeshPolyLine(vertex_coord,
                                                    Inflow_boundary_id);
- 
+
  // Second boundary polyline: Upper wall
- vertex_coord[0][0]=0.0;
- vertex_coord[0][1]=H;
- vertex_coord[1][0]=0.5*lx;
- vertex_coord[1][1]=H;
- vertex_coord[2][0]=lx;
- vertex_coord[2][1]=H;
+ double dx = lx/((double)(n_x));
+ //First vertex
+ vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=H;
+ for(unsigned i=1;i<n_x;++i)
+  {
+   vertex_coord_h[i][0] = i*dx;
+   vertex_coord_h[i][1] = H;
+  }
+ //Final vertex
+ vertex_coord_h[n_x][0]=lx;
+ vertex_coord_h[n_x][1]=H;
+
+
+/* vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=H;
+ vertex_coord_h[1][0]=0.5*lx;
+ vertex_coord_h[1][1]=H;
+ vertex_coord_h[2][0]=lx;
+ vertex_coord_h[2][1]=H;*/
 
  // Build the 2nd boundary polyline
- boundary_polyline_pt[1] = new TriangleMeshPolyLine(vertex_coord,
+ boundary_polyline_pt[1] = new TriangleMeshPolyLine(vertex_coord_h,
                                                    Upper_wall_boundary_id);
 
  // Third boundary polyline: Outflow
+ /*vertex_coord_h[0][0]=lx;
+ vertex_coord_h[0][1]=H;
+ vertex_coord_h[1][0]=lx;
+ vertex_coord_h[1][1]=h;
+ vertex_coord_h[2][0]=lx;
+ vertex_coord_h[2][1]=0.0;*/
+
+ 
+  //Lower film - upper right corner
  vertex_coord[0][0]=lx;
  vertex_coord[0][1]=H;
- vertex_coord[1][0]=lx;
- vertex_coord[1][1]=h;
- vertex_coord[2][0]=lx;
- vertex_coord[2][1]=0.0;
+ //Add intermediate nodes
+ for(unsigned i=1;i<n_y2;++i)
+  {
+   vertex_coord[i][0] = lx;
+   vertex_coord[i][1] = H - i*dy_2;
+  }
+ //Interface height
+ vertex_coord[n_y2][0] = lx;
+ vertex_coord[n_y2][1] = h;
+
+ 
+ //Upper film
+ for(unsigned i=1;i<n_y1;++i)
+  {
+   vertex_coord[n_y2+i][0] = lx;
+   vertex_coord[n_y2+i][1] = h - i*dy_1;
+  }
+ 
+ //Override to avoid FP error
+ vertex_coord[n_y1+n_y2][0] = lx;
+ vertex_coord[n_y1+n_y2][1] = 0.0; 
+
 
  // Build the 3rd boundary polyline
  boundary_polyline_pt[2] = new TriangleMeshPolyLine(vertex_coord,
                                                    Outflow_boundary_id);
 
  // Fourth boundary polyline: Bottom wall
- vertex_coord[0][0]=lx;
- vertex_coord[0][1]=0.0;
- vertex_coord[1][0]=0.5*lx;
- vertex_coord[1][1]=0.0;
- vertex_coord[2][0]=0.0;
- vertex_coord[2][1]=0.0;
+ //First vertex
+ vertex_coord_h[0][0]=lx;
+ vertex_coord_h[0][1]=0.0;
+ for(unsigned i=1;i<n_x;++i)
+  {
+   vertex_coord_h[i][0] = lx - i*dx;
+   vertex_coord_h[i][1] = 0.0;
+  }
+ //Final vertex
+ vertex_coord_h[n_x][0]=0.0;
+ vertex_coord_h[n_x][1]=0.0;
+
+
+ /*vertex_coord_h[0][0]=lx;
+ vertex_coord_h[0][1]=0.0;
+ vertex_coord_h[1][0]=0.5*lx;
+ vertex_coord_h[1][1]=0.0;
+ vertex_coord_h[2][0]=0.0;
+ vertex_coord_h[2][1]=0.0;*/
 
  // Build the 4th boundary polyline
- boundary_polyline_pt[3] = new TriangleMeshPolyLine(vertex_coord,
+ boundary_polyline_pt[3] = new TriangleMeshPolyLine(vertex_coord_h,
                                                     Bottom_wall_boundary_id);
  
  // Create the triangle mesh polygon for outer boundary
@@ -1410,27 +1616,42 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  //Here we need to put the dividing internal line in
  Vector<TriangleMeshOpenCurve *> interface_pt(1);
  //Set the vertex coordinates
- vertex_coord[0][0]=0.0;
- vertex_coord[0][1]=h;
- vertex_coord[1][0]=0.5*lx;
- vertex_coord[1][1]=h;
- vertex_coord[2][0]=lx;
- vertex_coord[2][1]=h;
+ //First vertex
+ vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=h;
+ for(unsigned i=1;i<n_x;++i)
+  {
+   vertex_coord_h[i][0] = i*dx;
+   vertex_coord_h[i][1] = h;
+  }
+ //Final vertex
+ vertex_coord_h[n_x][0]=lx;
+ vertex_coord_h[n_x][1]=h;
+
+
+/* vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=h;
+ vertex_coord_h[1][0]=0.5*lx;
+ vertex_coord_h[1][1]=h;
+ vertex_coord_h[2][0]=lx;
+ vertex_coord_h[2][1]=h;*/
+ 
 
 //Create the internal line
   TriangleMeshPolyLine* interface_polyline_pt =
-   new TriangleMeshPolyLine(vertex_coord,
+   new TriangleMeshPolyLine(vertex_coord_h,
                             Interface_boundary_id);
 
   // Do the connection with the destination boundary, in this case
-  // the connection is done with the inflow boundary
+  // the connection is done with the inflow boundary. The connection is to the
+  // specified node.
   interface_polyline_pt->connect_initial_vertex_to_polyline(
-   dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[0]),1);
+   dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[0]),n_y1/*1*/);
 
   // Do the connection with the destination boundary, in this case
   // the connection is done with the outflow boundary
   interface_polyline_pt->connect_final_vertex_to_polyline(
-   dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[2]),1);
+   dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[2]),n_y2/*1*/);
 
   Vector<TriangleMeshCurveSection*> interface_curve_pt(1);
   interface_curve_pt[0] = interface_polyline_pt;
@@ -1473,6 +1694,9 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  
  // Define the region
  triangle_mesh_parameters.add_region_coordinates(1, lower_region);
+
+ //Don't allow addition of new nodes on boundaries
+ triangle_mesh_parameters.disable_automatic_creation_of_vertices_on_boundaries();
  
  // Create the mesh
  Bulk_mesh_pt =
@@ -1617,12 +1841,15 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
     
     Monitor_node_pt = Surface_mesh_pt->finite_element_pt(n_surface_element/2)->node_pt(1);
   }
- 
+
+  //Making periodic boundaries is a bit more involved for an unstructured mesh 
   if(Control_Parameters::Periodic_BCs)
    {
-     Dependent_position_mesh_pt = new Mesh;
-     //Create the dependent elements that ensure that the positions match
-     create_dependent_position_elements();
+    this->setup_periodic_boundaries();
+    
+    Dependent_position_mesh_pt = new Mesh;
+    //Create the dependent elements that ensure that the positions match
+    create_dependent_position_elements();
    }
   
  // Add the two sub-meshes to the problem
