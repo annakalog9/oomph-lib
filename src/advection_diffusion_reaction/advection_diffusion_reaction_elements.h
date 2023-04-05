@@ -581,9 +581,9 @@ namespace oomph
     }
 
 
-    /// Return FE representation of function value c_i(s) at local coordinate s and
-    /// at time level t (t=0 = present; t > 0: history, or auxiliary)
-    inline double interpolated_c_adv_diff_react(const unsigned &t,
+    /// Return FE representation of function value c_i(s) at local coordinate s
+    /// and at time level t (t=0 = present; t > 0: history, or auxiliary)
+    inline double interpolated_c_adv_diff_react(const unsigned& t,
                                                 const Vector<double>& s,
                                                 const unsigned& i) const
     {
@@ -605,14 +605,13 @@ namespace oomph
       // Loop over the local nodes and sum
       for (unsigned l = 0; l < n_node; l++)
       {
-       interpolated_c += nodal_value(t,l, c_nodal_index) * psi[l];
+        interpolated_c += nodal_value(t, l, c_nodal_index) * psi[l];
       }
 
       return (interpolated_c);
     }
 
 
-    
     /// Self-test: Return 0 for OK
     unsigned self_test();
 

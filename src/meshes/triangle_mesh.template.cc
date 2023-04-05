@@ -29972,18 +29972,18 @@ namespace oomph
         // ------------------------------------------
 
       } // else if
-        // (this->is_automatic_creation_of_vertices_on_boundaries_allowed())
+      // (this->is_automatic_creation_of_vertices_on_boundaries_allowed())
 
 
-        //Custom update of polygon
-        // Update the representation of the outer boundaries using the
-        // element's target area
-        for (unsigned i_outer = 0; i_outer < nouter; i_outer++)
-        {
-          this->update_polygon_custom(this->Outer_boundary_pt[i_outer]);
-        }
-      
-      
+      // Custom update of polygon
+      // Update the representation of the outer boundaries using the
+      // element's target area
+      for (unsigned i_outer = 0; i_outer < nouter; i_outer++)
+      {
+        this->update_polygon_custom(this->Outer_boundary_pt[i_outer]);
+      }
+
+
       // ==============================================================
       // END: Updating of boundaries representation (unrefinement and
       // refinement of polylines)
@@ -31029,8 +31029,10 @@ namespace oomph
         const double t_start_create_new_adapted_mesh = TimingHelpers::timer();
 
 
-        std::cout << "Yo " << this->Allow_automatic_creation_of_vertices_on_boundaries << "\n";
-        
+        std::cout << "Yo "
+                  << this->Allow_automatic_creation_of_vertices_on_boundaries
+                  << "\n";
+
         // Solid mesh?
         if (solid_mesh_pt != 0)
         {
