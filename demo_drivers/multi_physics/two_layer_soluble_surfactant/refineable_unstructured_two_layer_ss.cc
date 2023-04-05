@@ -56,7 +56,7 @@
 #include "solid.h"
 
 // The mesh is our standard rectangular quadmesh
-#include "meshes/rectangular_quadmesh.h"
+#include "meshes/triangle_mesh.h"
 
 // Use the oomph and std namespaces 
 using namespace oomph;
@@ -67,7 +67,7 @@ namespace oomph
 
 namespace Control_Parameters
 {
-  bool Periodic_BCs = true;
+ bool Periodic_BCs = false; //true;
 }
 
   
@@ -256,16 +256,49 @@ namespace Global_Physical_Variables
 } //end of oomph namespace
 
 
+
+//A Comparison operator for the boundary nodes
+class CompareNodeCoordinates
+{
+public:
+///The actual comparison operator
+ int operator() (Node* const &node1_pt,
+                 Node* const &node2_pt)
+  {
+   unsigned n_dim = node1_pt->ndim();
+   if(n_dim != node2_pt->ndim())
+    {
+     throw OomphLibError("Can't compare two nodes of different dimension",
+                         "CompareNodeCoordinates::operator()",
+                         OOMPH_EXCEPTION_LOCATION);
+    }
+
+   //Make sure to handle the finite precision problems
+   //associated with coordinates!
+   unsigned i=0;
+   //const double tol = 3.0e-7;
+   const double tol = 4.0e-7;
+   while((i < n_dim) && (std::abs(node1_pt->x(i) - node2_pt->x(i)) < tol)) 
+    {++i;}
+   //If we've got to the end, they are the same so return false
+   if(i==n_dim) {return false;}
+   
+   //Otherwise
+   return node1_pt->x(i) < node2_pt->x(i);
+  }
+};
+
+
 //==start_of_specific_element_class=============================
 /// Element class used to insist that the vertical positions of
 /// the periodic nodes coincide.
 /// These are essentially point elements that are created
 /// from existing periodic nodes.
 //=============================================================
-class SlavePositionPointElement : public virtual SolidPointElement, public virtual SolidFaceElement
+class DependentPositionPointElement : public virtual SolidPointElement, public virtual SolidFaceElement
 {
-  //Slave node
-  Node* Slave_node_pt;
+  //Dependent node
+  Node* Dependent_node_pt;
 
   //Face ID
   unsigned Id;
@@ -298,7 +331,7 @@ class SlavePositionPointElement : public virtual SolidPointElement, public virtu
     //then add the lagrange multiplier
 	if(local_eqn >=0)
 	  {
-	    residuals[local_eqn] = nod_pt->x(1) - Slave_node_pt->x(1); 
+	    residuals[local_eqn] = nod_pt->x(1) - Dependent_node_pt->x(1); 
 	    //Jacobian terms
 	    if(flag)
 	      {
@@ -339,7 +372,7 @@ class SlavePositionPointElement : public virtual SolidPointElement, public virtu
 	      }
 	  }
 	
-	//Get the local equation for the slave node
+	//Get the local equation for the dependent node
 	local_eqn = this->external_local_eqn(0,1);
 	if(local_eqn >=0)
 	  {
@@ -361,8 +394,8 @@ class SlavePositionPointElement : public virtual SolidPointElement, public virtu
 public:
 
   //Constructor: Make this from a single Node
-  SlavePositionPointElement(Node* const &node_pt, Node *const &slave_node_pt, const unsigned &id=0) :
-    Slave_node_pt(slave_node_pt), Id(id)
+  DependentPositionPointElement(Node* const &node_pt, Node *const &dependent_node_pt, const unsigned &id=0) :
+    Dependent_node_pt(dependent_node_pt), Id(id)
   {
     //There is only one node
     this->set_n_node(1);
@@ -371,8 +404,8 @@ public:
     //THIS IS REALLY IMPORTANT.
     //IF YOU MISS IT THEN LOCAL EQUATION NUMBERING GOES WRONG
     this->set_nodal_dimension(node_pt->ndim());
-    //Set the slave node's variable position as external data
-    SolidNode* solid_nod_pt = static_cast<SolidNode*>(Slave_node_pt);
+    //Set the dependent node's variable position as external data
+    SolidNode* solid_nod_pt = static_cast<SolidNode*>(Dependent_node_pt);
     this->add_external_data(solid_nod_pt->variable_position_pt());
     //There is one extra value (the Lagrange multiplier for each node)
     Vector<unsigned> n_additional_values(1,1);
@@ -381,13 +414,13 @@ public:
    }
 
   //Broken copy constructore
-  SlavePositionPointElement(const SlavePositionPointElement&)
+  DependentPositionPointElement(const DependentPositionPointElement&)
   {
-    BrokenCopy::broken_copy("SlavePositionPointElement");
+    BrokenCopy::broken_copy("DependentPositionPointElement");
   }
 
   //Empty Destructor
-  ~SlavePositionPointElement() {}
+  ~DependentPositionPointElement() {}
   
  /// Fill in the residuals for the volume constraint
  void fill_in_contribution_to_residuals( Vector<double> &residuals)
@@ -409,224 +442,79 @@ public:
 };
 
 
-
-//==start_of_specific_mesh_class==========================================
-/// Two layer mesh which employs a pseudo-solid node-update strategy.
-/// This class is essentially a wrapper to an 
-/// ElasticRefineableRectangularQuadMesh, with an additional boundary
-/// to represent the interface between the two fluid layers.
-//========================================================================
+//Custom Mesh class to wrap up a few interfaces nicely so that the code looks
+//as much like the unrefineable version as possible
 template <class ELEMENT>
-class ElasticRefineableTwoLayerMesh :
- public virtual ElasticRefineableRectangularQuadMesh<ELEMENT>
+class RefineableSolidTwoLayerTriangleMesh :
+ public virtual RefineableSolidTriangleMesh<ELEMENT>
 {
- //Number of elements in the lower layer
- unsigned Nlower;
-
- //Number of elements in the upper layer
- unsigned Nupper;
-
-  //Need to store the tree roots in the upper and lower layers, because the numbers
-  //of elements will (of course) change
-
-  //Pointers to upper layer tree roots
-  Vector<TreeRoot*> Upper_tree_root_pt;
-
-  //Pointers to lower later tree roots
-  Vector<TreeRoot*> Lower_tree_root_pt;
-
-  //Pointers to the elements in the upper layer
-  Vector<FiniteElement*> Upper_element_pt;
-
-  //Pointers to the elements in the lower layer
-  Vector<FiniteElement*> Lower_element_pt;
-  
 public:
+ //Not sure why I have to call all the constructors...
+    RefineableSolidTwoLayerTriangleMesh(
+      TriangleMeshParameters& triangle_mesh_parameters,
+      TimeStepper* time_stepper_pt = &Mesh::Default_TimeStepper)
+     : TriangleMesh<ELEMENT>(triangle_mesh_parameters,time_stepper_pt),
+     RefineableTriangleMesh<ELEMENT>(triangle_mesh_parameters,time_stepper_pt),
+     RefineableSolidTriangleMesh<ELEMENT>(triangle_mesh_parameters,time_stepper_pt)
+  {}
 
- /// Constructor: Pass number of elements in x-direction, number of
- /// elements in y-direction in bottom and top layer, respectively,
- /// axial length and height of top and bottom layers, a boolean
- /// flag to make the mesh periodic in the x-direction, and pointer 
- /// to timestepper (defaults to Steady timestepper)
- ElasticRefineableTwoLayerMesh(const unsigned &nx, 
-                               const unsigned &ny1,
-                               const unsigned &ny2, 
-                               const double &lx,
-                               const double &h1,
-                               const double &h2,
-                               const bool& periodic_in_x,
-                               TimeStepper* time_stepper_pt=
-                               &Mesh::Default_TimeStepper)
-  : RectangularQuadMesh<ELEMENT>(nx,ny1+ny2,lx,h1+h2,
-                                 periodic_in_x,time_stepper_pt),
-    ElasticRectangularQuadMesh<ELEMENT>(nx,ny1+ny2,lx,h1+h2,
-                                        periodic_in_x,time_stepper_pt),
-    ElasticRefineableRectangularQuadMesh<ELEMENT>(nx,ny1+ny2,lx,h1+h2,
-                                                  periodic_in_x,
-                                                  time_stepper_pt)
+    /// Build mesh from specified triangulation and
+    /// associated target areas for elements in it.
+    RefineableSolidTwoLayerTriangleMesh(
+      const Vector<double>& target_area,
+      TriangulateIO& triangulate_io,
+      TimeStepper* time_stepper_pt = &Mesh::Default_TimeStepper,
+      const bool& use_attributes = false,
+      const bool& allow_automatic_creation_of_vertices_on_boundaries = true,
+      OomphCommunicator* comm_pt = 0)
+      : RefineableSolidTriangleMesh<ELEMENT>(
+          target_area,
+          triangulate_io,
+          time_stepper_pt,
+          use_attributes,
+          allow_automatic_creation_of_vertices_on_boundaries,
+          comm_pt) {}
+
+ //Custom override
+ bool update_polygon_custom(TriangleMeshPolygon*& polygon_pt)
   {
-   // ----------------------------------------------------
-   // Convert all nodes on the interface to boundary nodes
-   // ----------------------------------------------------
-
-   // Set the number of boundaries to 5
-   this->set_nboundary(5);
-
-   //Set the boundary coordinate to be the Lagrangian x coordinate the new boundary
-   Vector<double> zeta(1);
-   // Loop over horizontal elements
-   for(unsigned e=0;e<nx;e++)
+   //Find the number of polylines
+   const unsigned n_polyline = polygon_pt->npolyline();
+   TriangleMeshPolyLine* polyline1_pt=0, *polyline3_pt=0;
+   
+   for(unsigned n=0;n<n_polyline;++n)
     {
-     // Get pointer to element in lower fluid adjacent to interface
-     FiniteElement* el_pt = this->finite_element_pt(nx*(ny1-1)+e);
+     //Find the polylin
+     TriangleMeshPolyLine* polyline_pt=polygon_pt->polyline_pt(n);
+     unsigned boundary_id = polyline_pt->boundary_id();
+     if(boundary_id==1) {polyline1_pt = polyline_pt;}
+     if(boundary_id==3) {polyline3_pt = polyline_pt;}
+    }
 
-     // Determine number of nodes in this element
-     const unsigned n_node = el_pt->nnode();
-
-     // The last three nodes in this element are those on the interface.
-     // Loop over these nodes and convert them to boundary nodes.
-     for(unsigned n=0;n<3;n++)
-      {
-       Node* nod_pt = el_pt->node_pt(n_node-3+n);
-       this->convert_to_boundary_node(nod_pt);
-       this->add_boundary_node(4,nod_pt);
-
-       //Boundary coordinate is the origin x coordinate
-       zeta[0] = nod_pt->x(0);
-       nod_pt->set_coordinates_on_boundary(4,zeta);
-      }
-    } // End of loop over horizontal elements
-   this->Boundary_coordinate_exists[4] = true;
+   //Now let's see what we have
+   std::cout << "Polyline 1\n";
+   polyline1_pt->output(std::cout);
+   std::cout << "Polyline 3\n";
+   polyline3_pt->output(std::cout);
    
-   // Set up the boundary element information
-   this->setup_boundary_element_info();
 
-   Nlower = nx*ny1; Nupper = nx*ny2;
-
-   //The default position is that the interface will be located half-way between the
-   //boundaries, now we need to rescale.
-   double half_height = 0.5*(h1+h2);
-   //Loop over all nodes
-   unsigned n_node = this->nnode();
-   for(unsigned n=0;n<n_node;++n)
-     {
-       SolidNode* nod_pt = this->node_pt(n);
-       double y = nod_pt->x(1);
-       if(y < half_height) {nod_pt->x(1) = h1*y/half_height;}
-       else {nod_pt->x(1) = h1 + h2*((y-half_height)/half_height);}
-     }
-
-   //Reset the Lagrangian coordinates
-   this->set_lagrangian_nodal_coordinates();
-
-   
-   //Set the upper and lower tree roots
-   this->Lower_tree_root_pt.resize(Nlower);
-   for(unsigned e=0;e<Nlower;e++)
-     {
-       this->Lower_tree_root_pt[e] =
-	 dynamic_cast<ELEMENT*>(this->element_pt(e))->
-	 tree_pt()->root_pt();
-     }
-   this->Upper_tree_root_pt.resize(Nupper);
-   for(unsigned e=0;e<Nupper;e++)
-     {
-       this->Upper_tree_root_pt[e] =
-	 dynamic_cast<ELEMENT*>(this->element_pt(Nlower+e))->
-	 tree_pt()->root_pt();
-     }
-      
-   
-   //Sort out periodicity for the adaptive mesh
-   if(periodic_in_x)
-     {
-       // Now establish the new neighbours (created by "wrapping around"
-       // the domain) in the TreeForst representation of the mesh
-       unsigned ny = ny1+ny2;
-       // Get pointers to tree roots associated with elements on the 
-       // left and right boundaries
-       Vector<TreeRoot*> left_root_pt(ny);
-       Vector<TreeRoot*> right_root_pt(ny);
-       for(unsigned i=0;i<ny;i++) 
-	 {
-	   left_root_pt[i] = 
-	     dynamic_cast<ELEMENT*>(this->element_pt(i*nx))->
-	     tree_pt()->root_pt();
-	   right_root_pt[i] = 
-	     dynamic_cast<ELEMENT*>(this->element_pt(nx-1+i*nx))->
-	     tree_pt()->root_pt();
-	 }
-       
-       // Switch on QuadTreeNames for enumeration of directions
-       using namespace QuadTreeNames;
-       
-       //Set the neighbour and periodicity
-       for(unsigned i=0;i<ny;i++) 
-	 {
-	   // The western neighbours of the elements on the left
-	   // boundary are those on the right
-	   left_root_pt[i]->neighbour_pt(W) = right_root_pt[i];
-	   left_root_pt[i]->set_neighbour_periodic(W); 
-	   
-	   // The eastern neighbours of the elements on the right
-	   // boundary are those on the left
-	   right_root_pt[i]->neighbour_pt(E) = left_root_pt[i];
-	   right_root_pt[i]->set_neighbour_periodic(E);     
-	 } // done
-     }
-
-   this->setup_upper_and_lower_elements();
-   
   }
+ 
+ //Destructor 
+ virtual ~RefineableSolidTwoLayerTriangleMesh () {}
 
-  //Set pointers to upper and lower elements
-  void setup_upper_and_lower_elements()
-  {
-    unsigned Nupper_root = Upper_tree_root_pt.size();
-    Vector<Tree*> upper_leaves_pt;
-    for(unsigned i=0;i<Nupper_root;++i)
-      {
-       Upper_tree_root_pt[i]->stick_leaves_into_vector(upper_leaves_pt);
-      }
+ //Return the numbers (Note hard-coded region)
+ unsigned nlower() {return(this->nregion_element(1));} 
 
-    Nupper = upper_leaves_pt.size();
-    Upper_element_pt.resize(Nupper);
-    
-    for(unsigned i=0;i<Nupper;++i)
-      {
-	Upper_element_pt[i] = upper_leaves_pt[i]->object_pt();
-      }
-	
-    unsigned Nlower_root = Lower_tree_root_pt.size();
-    Vector<Tree*> lower_leaves_pt;
-    for(unsigned i=0;i<Nlower_root;++i)
-      {
-       Lower_tree_root_pt[i]->stick_leaves_into_vector(lower_leaves_pt);
-      }
+ unsigned nupper() {return(this->nregion_element(0));} 
 
-    Nlower = lower_leaves_pt.size();
-    Lower_element_pt.resize(Nlower);
-    
-    for(unsigned i=0;i<Nlower;++i)
-      {
-	Lower_element_pt[i] = lower_leaves_pt[i]->object_pt();
-      }
-  }
-  
- //Return the numbers
- unsigned nlower() const {return(Nlower);} 
+ FiniteElement* lower_layer_element_pt(const unsigned &e)
+ {return this->region_element_pt(1,e);}
 
- unsigned nupper() const {return(Nupper);} 
-
- FiniteElement* lower_layer_element_pt(const unsigned &e) const
-  {return this->Lower_element_pt[e];}
-
- FiniteElement* upper_layer_element_pt(const unsigned &e) const
-  {return this->Upper_element_pt[e];}
-
+ FiniteElement* upper_layer_element_pt(const unsigned &e)
+ {return this->region_element_pt(0,e);}
  
 }; // End of specific mesh class
-
 
 
 /// ///////////////////////////////////////////////////////////////////
@@ -716,6 +604,7 @@ public:
       //We also need to unpin the Lagrange multipliers for periodicity
       //We must not clash with the lagrange multiplier used to drive
       //the interface so we pin that at the left-hand-side
+      if(Control_Parameters::Periodic_BCs)
       {
 	unsigned b=3;
 	unsigned n_boundary_node = this->Bulk_mesh_pt->nboundary_node(b);
@@ -746,6 +635,42 @@ public:
     }
   }
 
+ /// Setup periodic boundaries
+ void setup_periodic_boundaries()
+  {
+    //Now we need to make the boundaries periodic. Boundary 1 is made periodic from Boundary 3
+    //Let's load in the boundary nodes
+    Vector<Node*> boundary_nodes1, boundary_nodes3;
+    unsigned n_boundary_node1 = Bulk_mesh_pt->nboundary_node(1);
+    unsigned n_boundary_node3 = Bulk_mesh_pt->nboundary_node(3);
+
+    if(n_boundary_node1 != n_boundary_node3)
+     {
+      std::cout << "Problem: trying to make boundaries periodic with different numbers of nodes\n";
+     }
+    
+    
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {boundary_nodes1.push_back(Bulk_mesh_pt->boundary_node_pt(1,n));}
+    for(unsigned n=0;n<n_boundary_node3;++n)
+     {boundary_nodes3.push_back(Bulk_mesh_pt->boundary_node_pt(3,n));}
+    
+    //Sort them
+    std::sort(boundary_nodes1.begin(),boundary_nodes1.end(),CompareNodeCoordinates());
+    std::sort(boundary_nodes3.begin(),boundary_nodes3.end(),CompareNodeCoordinates());
+    
+    //Now we can loop over the nodes and make them periodic:
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {
+      std::cout << n << " "  << boundary_nodes1[n]->x(1) << " " << boundary_nodes3[n]->x(1) << "\n";
+     }
+
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {
+      boundary_nodes1[n]->make_periodic(boundary_nodes3[n]);
+     }
+  }
+ 
 
  /// Update the problem specs before solve (empty)
   void actions_before_newton_solve() {}
@@ -770,20 +695,23 @@ public:
       }
 
     //Lagrange multipliers associated with the periodicity constraint
-    n_boundary_node = this->Bulk_mesh_pt->nboundary_node(3);
-    for(unsigned n=0;n<n_boundary_node;++n)
-      {
+    if(Control_Parameters::Periodic_BCs)
+     {
+      n_boundary_node = this->Bulk_mesh_pt->nboundary_node(3);
+      for(unsigned n=0;n<n_boundary_node;++n)
+       {
 	Node* nod_pt = Bulk_mesh_pt->boundary_node_pt(3,n);
 	if(!(nod_pt->is_on_boundary(0)) &&
 	   !(nod_pt->is_on_boundary(2)) &&
 	   !(nod_pt->is_on_boundary(4)))
-	  {
-	    unsigned lm_index = dynamic_cast<BoundaryNodeBase*>(nod_pt)
-	      ->index_of_first_value_assigned_by_face_element(
-							      Periodic_index);
-	    nod_pt->set_value(lm_index,0.0);
-	  }
-      }
+         {
+          unsigned lm_index = dynamic_cast<BoundaryNodeBase*>(nod_pt)
+           ->index_of_first_value_assigned_by_face_element(
+            Periodic_index);
+          nod_pt->set_value(lm_index,0.0);
+         }
+       }
+     }
 	 
   }
   
@@ -796,13 +724,13 @@ public:
      
      if(Control_Parameters::Periodic_BCs)
        {
-	 //Delete  the slave elements and wipe the mesh
-	 this->delete_slave_position_elements();
+	 //Delete  the dependent elements and wipe the mesh
+	 this->delete_dependent_position_elements();
        }
      
      //Backup the surface mesh
      Backed_up_surface_mesh_pt =
-       new BackupMeshForProjection<QElement<1,3> >(Surface_mesh_pt,4,0); 
+       new BackupMeshForProjection<TElement<1,3> >(Surface_mesh_pt,4,0); 
      
      // Delete the interface elements and wipe the surface mesh
      delete_interface_elements();
@@ -814,10 +742,100 @@ public:
  /// Rebuild the mesh of interface elements after adapting the bulk mesh
  void actions_after_adapt()
   {
-    //Need to update the pointers to upper and lower elements
-    this->Bulk_mesh_pt->setup_upper_and_lower_elements();
+
+   Bulk_mesh_pt->output("crap.dat",3);
+   
+    // Determine number of bulk elements in lower/upper fluids
+    const unsigned n_lower = Bulk_mesh_pt->nlower();
+    const unsigned n_upper = Bulk_mesh_pt->nupper();
     
+    
+    // Loop over bulk elements in lower fluid
+    for(unsigned e=0;e<n_lower;e++)
+     {
+      // Upcast from GeneralisedElement to the present element
+      ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
+                                              lower_layer_element_pt(e));
+      
+      // Set the diffusivities number
+      el_pt->diff_pt() = &Global_Physical_Variables::D;
+      
+      // Set the timescales
+      el_pt->tau_pt() =&Global_Physical_Variables::Tau;
+      
+      // Set the Reynolds number
+      el_pt->re_pt() = &Global_Physical_Variables::Re;
+      
+      // Set the Womersley number
+      el_pt->re_st_pt() = &Global_Physical_Variables::Re;
+      
+      // Set the product of the Reynolds number and the inverse of the
+      // Froude number
+      el_pt->re_invfr_pt() = &Global_Physical_Variables::ReInvFr;
+      
+      // Set the km parameter
+      el_pt->km_pt() = &Global_Physical_Variables::K_m;
+      
+      // Set the N parameter
+      el_pt->n_pt() = &Global_Physical_Variables::N;
+      
+      
+      // Set the direction of gravity
+      el_pt->g_pt() = &Global_Physical_Variables::Direction_of_gravity;
+      
+      // Set the constitutive law
+      el_pt->constitutive_law_pt() = this->Constitutive_law_pt;
+      
+     } // End of loop over bulk elements in lower fluid
+    
+    
+    // Loop over bulk elements in upper fluid 
+    for(unsigned e=0;e<n_upper;e++)
+     {
+      // Upcast from GeneralisedElement to the present element
+      ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
+                                              upper_layer_element_pt(e));
+      
+      // Set the diffusivities number
+      el_pt->diff_pt() = &Global_Physical_Variables::D;
+      
+      // Set the timescales
+      el_pt->tau_pt() =&Global_Physical_Variables::Tau;
+      
+      // Set the Reynolds number
+      el_pt->re_pt() = &Global_Physical_Variables::Re;
+      
+      // Set the Womersley number
+      el_pt->re_st_pt() = &Global_Physical_Variables::Re;
+      
+      // Set the product of the Reynolds number and the inverse of the
+      // Froude number
+      el_pt->re_invfr_pt() = &Global_Physical_Variables::ReInvFr;
+      
+      // Set the viscosity ratio
+      el_pt->viscosity_ratio_pt() = &Global_Physical_Variables::M;
+      
+      // Set the density ratio
+      el_pt->density_ratio_pt() = &Global_Physical_Variables::R;
+      
+      // Set the km parameter
+      el_pt->km_pt() = &Global_Physical_Variables::K_m;
+      
+      // Set the N parameter
+      el_pt->n_pt() = &Global_Physical_Variables::N;
+      
+      // Set the direction of gravity
+      el_pt->g_pt() = &Global_Physical_Variables::Direction_of_gravity;
+      
+      // Set the constitutive law
+      el_pt->constitutive_law_pt() = Constitutive_law_pt;
+      
+     } // End of loop over bulk elements in upper fluid
+    
+
     // Create the interface elements
+    //Must be done *after* the physical parameters have been set, because we
+    //use the viscosity ratio point to determine upper or lower elements!
     this->create_interface_elements();
     
     //Now we need to make sure that we set up the correct insoluble surfactant
@@ -833,8 +851,11 @@ public:
     
     if(Control_Parameters::Periodic_BCs)
       {
-	//Create the slave position elements
-	this->create_slave_position_elements();
+       //Need to reset periodic boundary conditions on the boundaries...
+       this->setup_periodic_boundaries();
+       
+	//Create the dependent position elements
+	this->create_dependent_position_elements();
       }
     
     // Rebuild the Problem's global mesh from its various sub-meshes
@@ -844,9 +865,15 @@ public:
     const unsigned n_node = Bulk_mesh_pt->nnode();
     for(unsigned n=0;n<n_node;n++) {Bulk_mesh_pt->node_pt(n)->pin_position(0); }
     
-    // Determine number of bulk elements in lower/upper fluids
-    const unsigned n_lower = Bulk_mesh_pt->nlower();
-    const unsigned n_upper = Bulk_mesh_pt->nupper();
+
+    //Need to create the monitor node again (use a different criterion in general)
+    {
+     unsigned n_surface_element = Surface_mesh_pt->nelement();
+     
+     Monitor_node_pt = Surface_mesh_pt->finite_element_pt(n_surface_element/2)->node_pt(1);
+    }
+    
+ 
     
     // Loop over bulk elements in upper fluid 
     for(unsigned e=0;e<n_upper;e++)
@@ -951,12 +978,12 @@ public:
    set_boundary_conditions(this->time_pt()->time());
   }
 
-  /// Create the elements that slave the position
-  void create_slave_position_elements()
+  /// Create the elements that dependent the position
+  void create_dependent_position_elements()
   {
     //We know that boundary 1 is made periodic from boundary 3
     //We also know that the nodes have already been made periodic so we simply need
-    //to create the slave elements to match the vertical positions
+    //to create the dependent elements to match the vertical positions
     const unsigned n_boundary_node = this->Bulk_mesh_pt->nboundary_node(1);
     for(unsigned n=0;n<n_boundary_node;++n)
       {
@@ -967,18 +994,18 @@ public:
 	//If there is no master node, then the node has no
 	//counterpart on the other side and is therefore
 	//not a degree of freedom and does not need to be
-	//slaved
+	//dependentd
 	if(master_node_pt!=0)
 	  {
 	    
-	    //Only create slaves for nodes that are not on the interface
+	    //Only create dependents for nodes that are not on the interface
 	    if(!(master_node_pt->is_on_boundary(0)) &&
 	       !(master_node_pt->is_on_boundary(2)) &&
 	       !(master_node_pt->is_on_boundary(4)))
 	      {
-		//Create the slave node with a position ID
-		this->Slave_position_mesh_pt->
-		  add_element_pt(new SlavePositionPointElement(master_node_pt,
+		//Create the dependent node with a position ID
+		this->Dependent_position_mesh_pt->
+		  add_element_pt(new DependentPositionPointElement(master_node_pt,
 							       nod_pt,Periodic_index));
 	      }
 	  }
@@ -988,19 +1015,19 @@ public:
 
 
  /// Delete the 1d interface elements
- void delete_slave_position_elements()
+ void delete_dependent_position_elements()
   {
     // Determine number of interface elements
-    const unsigned n_slave_element = Slave_position_mesh_pt->nelement();
+    const unsigned n_dependent_element = Dependent_position_mesh_pt->nelement();
     
     // Loop over interface elements and delete
-    for(unsigned e=0;e<n_slave_element;e++)
+    for(unsigned e=0;e<n_dependent_element;e++)
       {
-	delete Slave_position_mesh_pt->element_pt(e);
+	delete Dependent_position_mesh_pt->element_pt(e);
       }
     
     // Wipe the mesh
-    Slave_position_mesh_pt->flush_element_and_node_storage();
+    Dependent_position_mesh_pt->flush_element_and_node_storage();
   }
 
   
@@ -1178,13 +1205,13 @@ void deform_interface(const double &epsilon,
  /// Overloaded version of the problem's access function to 
  /// the mesh. Recasts the pointer to the base Mesh object to 
  /// the actual mesh type.
- ElasticRefineableTwoLayerMesh<ELEMENT>* Bulk_mesh_pt;
+ RefineableSolidTwoLayerTriangleMesh<ELEMENT>* Bulk_mesh_pt;
 
  /// Storage to the mesh of Surface interface elements
  Mesh* Surface_mesh_pt;
 
  /// Storage for the back up the surface mesh
- BackupMeshForProjection<QElement<1,3> >* Backed_up_surface_mesh_pt;
+ BackupMeshForProjection<TElement<1,3> >* Backed_up_surface_mesh_pt;
   
  /// Storage to point elements if needed for non-periodic domains
  Mesh* Point_mesh_pt;
@@ -1197,12 +1224,16 @@ void deform_interface(const double &epsilon,
 
  /// Storage for elements that constraint the vertical positions
  /// of the periodic nodes on the boundaries
- Mesh* Slave_position_mesh_pt;
+ Mesh* Dependent_position_mesh_pt;
  
  /// Pointer to the constitutive law used to determine the mesh deformation
  ConstitutiveLaw* Constitutive_law_pt;
 
 
+ /// Triangle mesh polygon for outer boundary 
+ TriangleMeshPolygon* Outer_boundary_polyline_pt; 
+
+ 
   //Calculate the minimum and maximum interface heights
   void interface_min_max(double &min, double &max)
   {
@@ -1369,7 +1400,18 @@ private:
   /// Used to enforce periodicity
   unsigned Periodic_index;
   
-  
+ /// Enumeration of channel boundaries
+ enum 
+ {
+  Inflow_boundary_id=3,
+  Upper_wall_boundary_id=2,
+  Outflow_boundary_id=1,
+  Bottom_wall_boundary_id=0,
+  Interface_boundary_id=4,
+ };
+
+
+
 }; // end of problem class
 
 //===========start_of_constructor=========================================
@@ -1386,33 +1428,287 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
   
  // Set output directory
  Doc_info.set_directory("RESLT");
- 
- // # of elements in x-direction (Coarse)
- unsigned n_x=40;//100;
-
- // # of elements in y-direction
- unsigned n_y1=8; //4;//8;
-
- unsigned n_y2=16; //4;//8;
 
  //Domain length in x direction
- double lx = 2.0*Global_Physical_Variables::L;
+ const double lx = 2.0*Global_Physical_Variables::L;
  
- // Domain length in y-direction
- double h1=Global_Physical_Variables::H0;
- double h2=1.0 - h1;
+ // Interface height
+ const double h=Global_Physical_Variables::H0;
+ // Total height of the domain
+ const double H=1.0; 
+
  
- // Build a standard rectangular quadmesh
- Bulk_mesh_pt = 
-   new ElasticRefineableTwoLayerMesh<ELEMENT>(n_x,n_y1,n_y2,lx,h1,h2,
-                                  Control_Parameters::Periodic_BCs,
-                                  time_stepper_pt());
+
+//Setup the triangle mesh
+ // Build the boundary segments for outer boundary, consisting of
+ //--------------------------------------------------------------
+ // four separate polylines
+ //------------------------
+ Vector<TriangleMeshCurveSection*> boundary_polyline_pt(4);
+
+ //Specify how many elements in the horizontal direction and vertical direction in each layer
+ //This is rquired to ensure that we have the same number of nodes on each side
+ //and so the boundaries can be made periodic
+ unsigned n_x = 10;
+ unsigned n_y1 = 4;
+ unsigned n_y2 = 4;
+
+  if(n_x < 2) {std::cout  << "n_x needs to be 2 or more\n";}
+  if(n_y1 < 2) {std::cout << "n_y1 needs to be 2 or more\n";}
+  if(n_y2 < 2) {std::cout << "n_y2 needs to be 2 or more\n";}
+ 
+ 
+ // Each horizontal polyline has n_x +1 vertices -- provide storage for their
+ // coordinates
+ Vector<Vector<double> > vertex_coord_h(n_x+1);
+ for(unsigned i=0;i<(n_x+1);i++)
+  {
+   vertex_coord_h[i].resize(2);
+  }
+
+ //Each vertical polyline has n_y1 + n_y2 +1 points
+ unsigned n_vertical_points = n_y1 + n_y2 + 1;
+
+ Vector<Vector<double> > vertex_coord(n_vertical_points);
+ for(unsigned i=0;i<n_vertical_points;i++)
+  {
+   vertex_coord[i].resize(2);
+  }
+
+ 
+ // First polyline: Inflow
+ double dy_1 = h/((double)(n_y1));
+ double dy_2 = (H-h)/((double)(n_y2));
+
+//Lower film - lower left corner
+ vertex_coord[0][0]=0.0;
+ vertex_coord[0][1]=0.0;
+ //Add intermediate nodes
+ for(unsigned i=1;i<n_y1;++i)
+  {
+   vertex_coord[i][0] = 0.0;
+   vertex_coord[i][1] = i*dy_1;
+  }
+ //Interface height
+ vertex_coord[n_y1][0] = 0.0;
+ vertex_coord[n_y1][1] = h;
+
+ 
+ //Upper film
+ for(unsigned i=1;i<n_y2;++i)
+  {
+   vertex_coord[n_y1+i][0] = 0.0;
+   vertex_coord[n_y1+i][1] = h + i*dy_2;
+  }
+ 
+ //Override to avoid FP error
+ vertex_coord[n_y1+n_y2][0] = 0.0;
+ vertex_coord[n_y1+n_y2][1] = H;
+
+
+ /*
+ vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=0.0;
+ vertex_coord_h[1][0]=0.0;
+ vertex_coord_h[1][1]= h;
+ vertex_coord_h[2][0]=0.0;
+ vertex_coord_h[2][1]= H;*/
+
+ 
+ 
+ // Build the 1st boundary polyline
+ boundary_polyline_pt[0] = new TriangleMeshPolyLine(vertex_coord,
+                                                   Inflow_boundary_id);
+
+ // Second boundary polyline: Upper wall
+ double dx = lx/((double)(n_x));
+ //First vertex
+ vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=H;
+ for(unsigned i=1;i<n_x;++i)
+  {
+   vertex_coord_h[i][0] = i*dx;
+   vertex_coord_h[i][1] = H;
+  }
+ //Final vertex
+ vertex_coord_h[n_x][0]=lx;
+ vertex_coord_h[n_x][1]=H;
+
+
+/* vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=H;
+ vertex_coord_h[1][0]=0.5*lx;
+ vertex_coord_h[1][1]=H;
+ vertex_coord_h[2][0]=lx;
+ vertex_coord_h[2][1]=H;*/
+
+ // Build the 2nd boundary polyline
+ boundary_polyline_pt[1] = new TriangleMeshPolyLine(vertex_coord_h,
+                                                   Upper_wall_boundary_id);
+
+ // Third boundary polyline: Outflow
+ /*vertex_coord_h[0][0]=lx;
+ vertex_coord_h[0][1]=H;
+ vertex_coord_h[1][0]=lx;
+ vertex_coord_h[1][1]=h;
+ vertex_coord_h[2][0]=lx;
+ vertex_coord_h[2][1]=0.0;*/
+
+ 
+  //Lower film - upper right corner
+ vertex_coord[0][0]=lx;
+ vertex_coord[0][1]=H;
+ //Add intermediate nodes
+ for(unsigned i=1;i<n_y2;++i)
+  {
+   vertex_coord[i][0] = lx;
+   vertex_coord[i][1] = H - i*dy_2;
+  }
+ //Interface height
+ vertex_coord[n_y2][0] = lx;
+ vertex_coord[n_y2][1] = h;
+
+ 
+ //Upper film
+ for(unsigned i=1;i<n_y1;++i)
+  {
+   vertex_coord[n_y2+i][0] = lx;
+   vertex_coord[n_y2+i][1] = h - i*dy_1;
+  }
+ 
+ //Override to avoid FP error
+ vertex_coord[n_y1+n_y2][0] = lx;
+ vertex_coord[n_y1+n_y2][1] = 0.0; 
+
+
+ // Build the 3rd boundary polyline
+ boundary_polyline_pt[2] = new TriangleMeshPolyLine(vertex_coord,
+                                                   Outflow_boundary_id);
+
+ // Fourth boundary polyline: Bottom wall
+ //First vertex
+ vertex_coord_h[0][0]=lx;
+ vertex_coord_h[0][1]=0.0;
+ for(unsigned i=1;i<n_x;++i)
+  {
+   vertex_coord_h[i][0] = lx - i*dx;
+   vertex_coord_h[i][1] = 0.0;
+  }
+ //Final vertex
+ vertex_coord_h[n_x][0]=0.0;
+ vertex_coord_h[n_x][1]=0.0;
+
+
+ /*vertex_coord_h[0][0]=lx;
+ vertex_coord_h[0][1]=0.0;
+ vertex_coord_h[1][0]=0.5*lx;
+ vertex_coord_h[1][1]=0.0;
+ vertex_coord_h[2][0]=0.0;
+ vertex_coord_h[2][1]=0.0;*/
+
+ // Build the 4th boundary polyline
+ boundary_polyline_pt[3] = new TriangleMeshPolyLine(vertex_coord_h,
+                                                    Bottom_wall_boundary_id);
+ 
+ // Create the triangle mesh polygon for outer boundary
+ Outer_boundary_polyline_pt = new TriangleMeshPolygon(boundary_polyline_pt);
+ 
+ //Here we need to put the dividing internal line in
+ Vector<TriangleMeshOpenCurve *> interface_pt(1);
+ //Set the vertex coordinates
+ //First vertex
+ vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=h;
+ for(unsigned i=1;i<n_x;++i)
+  {
+   vertex_coord_h[i][0] = i*dx;
+   vertex_coord_h[i][1] = h;
+  }
+ //Final vertex
+ vertex_coord_h[n_x][0]=lx;
+ vertex_coord_h[n_x][1]=h;
+
+
+/* vertex_coord_h[0][0]=0.0;
+ vertex_coord_h[0][1]=h;
+ vertex_coord_h[1][0]=0.5*lx;
+ vertex_coord_h[1][1]=h;
+ vertex_coord_h[2][0]=lx;
+ vertex_coord_h[2][1]=h;*/
+ 
+
+//Create the internal line
+  TriangleMeshPolyLine* interface_polyline_pt =
+   new TriangleMeshPolyLine(vertex_coord_h,
+                            Interface_boundary_id);
+
+  // Do the connection with the destination boundary, in this case
+  // the connection is done with the inflow boundary. The connection is to the
+  // specified node.
+  interface_polyline_pt->connect_initial_vertex_to_polyline(
+   dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[0]),n_y1/*1*/);
+
+  // Do the connection with the destination boundary, in this case
+  // the connection is done with the outflow boundary
+  interface_polyline_pt->connect_final_vertex_to_polyline(
+   dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[2]),n_y2/*1*/);
+
+  Vector<TriangleMeshCurveSection*> interface_curve_pt(1);
+  interface_curve_pt[0] = interface_polyline_pt;
+  
+  interface_pt[0] = new TriangleMeshOpenCurve(interface_curve_pt);
+  
+ // Now build the mesh, based on the boundaries specified by
+ //---------------------------------------------------------
+ // polygons just created
+ //----------------------
+
+ // Convert to "closed curve" objects
+ TriangleMeshClosedCurve* outer_closed_curve_pt=Outer_boundary_polyline_pt;
+
+ unsigned n_internal_closed_boundaries = 0;
+ Vector<TriangleMeshClosedCurve *>
+  inner_boundaries_pt(n_internal_closed_boundaries);
+ 
+ // Target area for initial mesh
+ double uniform_element_area=0.01;
+
+ // Use the TriangleMeshParameter object for gathering all
+ // the necessary arguments for the TriangleMesh object
+ TriangleMeshParameters triangle_mesh_parameters(
+   outer_closed_curve_pt);
+
+ //Define the inner boundaries
+ triangle_mesh_parameters.internal_closed_curve_pt() = inner_boundaries_pt;
+ 
+ // Define the holes on the boundary
+ triangle_mesh_parameters.internal_open_curves_pt() = interface_pt;
+
+ // Define the maximum element area
+ triangle_mesh_parameters.element_area() =
+   uniform_element_area;
+
+ Vector<double> lower_region(2);
+ lower_region[0] = 0.5*lx;
+ lower_region[1] = 0.5*h;
+ 
+ // Define the region
+ triangle_mesh_parameters.add_region_coordinates(1, lower_region);
+
+ //Don't allow addition of new nodes on boundaries
+ triangle_mesh_parameters.disable_automatic_creation_of_vertices_on_boundaries();
+ 
+ // Create the mesh
+ Bulk_mesh_pt =
+   new RefineableSolidTwoLayerTriangleMesh<ELEMENT>(
+     triangle_mesh_parameters, this->time_stepper_pt());
+
 
  // Create and set the error estimator for spatial adaptivity
  Bulk_mesh_pt->spatial_error_estimator_pt() = new Z2ErrorEstimator;
 
  // Set the maximum refinement level for the mesh to 4
- Bulk_mesh_pt->max_refinement_level() = 4;
+ //Bulk_mesh_pt->max_refinement_level() = 4;
 
  // Set error targets for refinement
  Bulk_mesh_pt->max_permitted_error() = 1.0e-3;
@@ -1425,8 +1721,9 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  // Complete the build of all elements so they are fully functional 
  
  // Determine number of bulk elements in lower/upper fluids
- const unsigned n_lower = Bulk_mesh_pt->nlower();
  const unsigned n_upper = Bulk_mesh_pt->nupper();
+ const unsigned n_lower = Bulk_mesh_pt->nlower();
+
 
  // Loop over bulk elements in lower fluid
  for(unsigned e=0;e<n_lower;e++)
@@ -1466,6 +1763,7 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    
   } // End of loop over bulk elements in lower fluid
 
+ 
  // Loop over bulk elements in upper fluid 
  for(unsigned e=0;e<n_upper;e++)
   {
@@ -1543,12 +1841,15 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
     
     Monitor_node_pt = Surface_mesh_pt->finite_element_pt(n_surface_element/2)->node_pt(1);
   }
- 
+
+  //Making periodic boundaries is a bit more involved for an unstructured mesh 
   if(Control_Parameters::Periodic_BCs)
    {
-     Slave_position_mesh_pt = new Mesh;
-     //Create the slave elements that ensure that the positions match
-     create_slave_position_elements();
+    this->setup_periodic_boundaries();
+    
+    Dependent_position_mesh_pt = new Mesh;
+    //Create the dependent elements that ensure that the positions match
+    create_dependent_position_elements();
    }
   
  // Add the two sub-meshes to the problem
@@ -1556,13 +1857,13 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  add_sub_mesh(Surface_mesh_pt);
  if(!Control_Parameters::Periodic_BCs)
    {
-     add_sub_mesh(Point_mesh_pt);
-     add_sub_mesh(Inlet_traction_mesh_pt);
-     add_sub_mesh(Outlet_traction_mesh_pt);
+    //add_sub_mesh(Point_mesh_pt);
+    //add_sub_mesh(Inlet_traction_mesh_pt);
+    //add_sub_mesh(Outlet_traction_mesh_pt);
    }
  else
    {
-     add_sub_mesh(Slave_position_mesh_pt);
+     add_sub_mesh(Dependent_position_mesh_pt);
      }
  
  // Combine all sub-meshes into a single mesh
@@ -1685,6 +1986,7 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
 
  //We initialise need to pin the lagrange multipliers
  //associated with periodic boundary conditions on the side boundary
+ if(Control_Parameters::Periodic_BCs)
  {
    unsigned b=3;
    unsigned n_boundary_node = this->Bulk_mesh_pt->nboundary_node(b);
@@ -1931,9 +2233,9 @@ int main(int argc, char **argv)
  
  //Construct our problem
  SurfactantProblem<Hijacked<
-                    RefineablePseudoSolidNodeUpdateElement<RefineableDoubleBuoyantQCrouzeixRaviartElement<2>, RefineableQPVDElement<2,3> > >,
+  ProjectableDoubleBuoyantElement<PseudoSolidNodeUpdateElement<DoubleBuoyantTCrouzeixRaviartElement<2>, TPVDElement<2,3> > > >,
 		   ElasticLineSolubleSurfactantTransportInterfaceElement<
-                    RefineablePseudoSolidNodeUpdateElement<RefineableDoubleBuoyantQCrouzeixRaviartElement<2>, RefineableQPVDElement<2,3> > > > 
+                    ProjectableDoubleBuoyantElement<PseudoSolidNodeUpdateElement<DoubleBuoyantTCrouzeixRaviartElement<2> , TPVDElement<2,3> > >  > > 
                    problem;
 
  

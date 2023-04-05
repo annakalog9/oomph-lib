@@ -549,6 +549,13 @@ namespace oomph
         dof_lookup_list.push_front(new_pair);
       }
     }
+
+    // Overload the build face element with the solid version to ensure
+    // that the Lagrangian coordinates are updated
+    void build_face_element(const int& face_index, FaceElement* face_element_pt)
+    {
+      SOLID::build_face_element(face_index, face_element_pt);
+    }
   };
 
   /// Explicit definition of the face geometry of these elements
@@ -1449,6 +1456,14 @@ namespace oomph
         new_pair.second = it->second + nbasic_dof_types;
         dof_lookup_list.push_front(new_pair);
       }
+    }
+
+
+    // Overload the build face element with the solid version to ensure
+    // that the Lagrangian coordinates are updated
+    void build_face_element(const int& face_index, FaceElement* face_element_pt)
+    {
+      SOLID::build_face_element(face_index, face_element_pt);
     }
   };
 
