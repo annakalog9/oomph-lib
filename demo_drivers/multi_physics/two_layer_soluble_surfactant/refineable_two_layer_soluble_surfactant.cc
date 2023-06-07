@@ -505,19 +505,27 @@ public:
    this->setup_boundary_element_info();
 
    Nlower = nx*ny1; Nupper = nx*ny2;
+   
+   //Initially the nodes are distributed uniformly in the vertical direction.
+   //We now need to rescale the y coordinates ot fit the chosen mesh distribution
+   //and interface height.
+   //We find the proportion of elements (in the y-direction) in the lower layer
+   double lower_proportion = (double)ny1/((double)(ny1+ny2));
 
-   //The default position is that the interface will be located half-way between the
-   //boundaries, now we need to rescale.
-   double half_height = 0.5*(h1+h2);
-   //Loop over all nodes
+   //The proportionate height of the  interface is then located at this
+   //poportion multiplied by the total height of the domain
+   double proportionate_height = lower_proportion*(h1+h2);
+  
+   //Loop over all nodes to rescale
    unsigned n_node = this->nnode();
    for(unsigned n=0;n<n_node;++n)
      {
        SolidNode* nod_pt = this->node_pt(n);
        double y = nod_pt->x(1);
-       if(y < half_height) {nod_pt->x(1) = h1*y/half_height;}
-       else {nod_pt->x(1) = h1 + h2*((y-half_height)/half_height);}
+       if(y < proportionate_height) {nod_pt->x(1) = h1*y/proportionate_height;}
+       else {nod_pt->x(1) = h1 + h2*((y-proportionate_height)/(1.0 - proportionate_height));}
      }
+
 
    //Reset the Lagrangian coordinates
    this->set_lagrangian_nodal_coordinates();
