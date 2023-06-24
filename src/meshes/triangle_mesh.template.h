@@ -3552,7 +3552,7 @@ namespace oomph
     bool update_polygon_using_face_mesh(TriangleMeshPolygon* polygon_pt,
                                         const bool& check_only = false);
 
-    
+
     /// Helper function that updates the input open curve by using
     /// end-points of elements from FaceMesh(es) that are constructed for the
     /// boundaries associated with the polylines. Optional boolean is used to
@@ -3618,9 +3618,9 @@ namespace oomph
     /// Updates the polylines using a custom script that can be overloaded
     /// by the user. This is called after the standard updates and can
     /// be used to adjust nodal positions for example
-    virtual bool update_polygon_custom(TriangleMeshPolygon*& polygon_pt) {};
-    
-    
+    virtual bool update_polygon_custom(TriangleMeshPolygon*& polygon_pt){};
+
+
     /// Updates the open curve but using the elements area instead
     /// of the default refinement and unrefinement methods
     bool update_open_curve_using_elements_area(
