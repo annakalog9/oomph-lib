@@ -502,11 +502,15 @@ void output(std::ostream &outfile, const unsigned &n_plot)
  
  //Tecplot header info 
  outfile << "ZONE I=" << n_plot << std::endl;
+
+ unsigned n_plot_points = nplot_points(n_plot);
+ 
  
  //Loop over plot points
- for(unsigned l=0;l<n_plot;l++)
+ for(unsigned i=0;i<n_plot_points;i++)
   {
-   s[0] = -1.0 + l*2.0/(n_plot-1);
+   //Get local coodinates of plot point
+   get_s_plot(i,n_plot, s);
    
    //Output the x,y,u,v 
    for(unsigned i=0;i<2;i++) outfile << this->interpolated_x(s,i) << " ";

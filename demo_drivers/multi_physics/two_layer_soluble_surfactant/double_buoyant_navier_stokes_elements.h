@@ -68,7 +68,11 @@ private:
 
   //Pointer to private data. The value of N
   double *N_pt;
-  
+
+  ///Boolean that controls whether the advection-diffusion-reaction
+  ///equations are included or not
+  bool Solve_advection_diffusion_reaction_equations;
+
  /// The static default value of the Rayleigh number
  static double Default_Physical_Constant_Value;
 
@@ -83,6 +87,7 @@ public:
   {
     Km_pt = &Default_Physical_Constant_Value;
     N_pt = &Default_Physical_Constant_Value;
+    Solve_advection_diffusion_reaction_equations=true;
   }
  
  /// UnPin p_dof-th pressure dof 
@@ -111,7 +116,15 @@ public:
 
  /// Access function for the pointer to the number of monomers in the micelle
  double* &n_pt() {return N_pt;}
-  
+
+ /// Turn off advection-diffusion-reaction equations
+ void disable_advection_diffusion_reaction_equations()
+ {Solve_advection_diffusion_reaction_equations=false;}
+
+ /// Turn on advection-diffusion-reaction equations
+ void enable_advection_diffusion_reaction_equations()
+ {Solve_advection_diffusion_reaction_equations=true;}
+ 
  /// Final override for disable ALE
  void disable_ALE() 
   {
@@ -280,9 +293,13 @@ public:
    //Fill in the residuals of the Navier-Stokes equations
    NavierStokesEquations<DIM>::fill_in_contribution_to_residuals(residuals);
 
-   //Fill in the residuals of the advection-diffusion eqautions
-   AdvectionDiffusionReactionEquations<2,DIM>::
-    fill_in_contribution_to_residuals(residuals);
+   //If we are solving the advection-diffusion-reaction equations, turn them on
+   if(Solve_advection_diffusion_reaction_equations)
+    {
+     //Fill in the residuals of the advection-diffusion eqautions
+     AdvectionDiffusionReactionEquations<2,DIM>::
+      fill_in_contribution_to_residuals(residuals);
+    }
   }
 
 
@@ -449,13 +466,17 @@ public:
    NavierStokesEquations<DIM>::
     fill_in_contribution_to_jacobian(residuals,jacobian);
 
-   //Calculate the advection-diffusion contributions 
-   //(diagonal block and residuals)
-   AdvectionDiffusionReactionEquations<2,DIM>::
-    fill_in_contribution_to_jacobian(residuals,jacobian);
-
-   //Add in the off-diagonal blocks
-   fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+   //Only if we are solving the transport equations
+   if(Solve_advection_diffusion_reaction_equations)
+    {
+     //Calculate the advection-diffusion contributions 
+     //(diagonal block and residuals)
+     AdvectionDiffusionReactionEquations<2,DIM>::
+      fill_in_contribution_to_jacobian(residuals,jacobian);
+     
+     //Add in the off-diagonal blocks
+     fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+    }
   } //End of jacobian calculation
 
 #endif
@@ -470,12 +491,15 @@ public:
    NavierStokesEquations<DIM>::
     fill_in_contribution_to_jacobian_and_mass_matrix(
      residuals,jacobian,mass_matrix);
-   
-   AdvectionDiffusionReactionEquations<2,DIM>::
-    fill_in_contribution_to_jacobian_and_mass_matrix(
-     residuals,jacobian,mass_matrix);
-
-   fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+   //If we are solving the transport equations add their contributions
+   if(Solve_advection_diffusion_reaction_equations)
+    {
+     AdvectionDiffusionReactionEquations<2,DIM>::
+      fill_in_contribution_to_jacobian_and_mass_matrix(
+       residuals,jacobian,mass_matrix);
+     
+     fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+    }
   }
 
  void integrated_C_and_M(double &int_C, double &int_M)
@@ -1427,6 +1451,10 @@ private:
 
   //Pointer to private data. The value of N
   double *N_pt;
+
+  ///Boolean that controls whether the advection-diffusion-reaction
+  ///equations are included or not
+  bool Solve_advection_diffusion_reaction_equations;
   
  /// The static default value of the Rayleigh number
  static double Default_Physical_Constant_Value;
@@ -1442,8 +1470,9 @@ public:
   {
     Km_pt = &Default_Physical_Constant_Value;
     N_pt = &Default_Physical_Constant_Value;
+    Solve_advection_diffusion_reaction_equations=true;
   }
- 
+  
  /// UnPin p_dof-th pressure dof 
  void unfix_pressure(const unsigned &p_dof)
   {
@@ -1470,7 +1499,16 @@ public:
 
  /// Access function for the pointer to the number of monomers in the micelle
  double* &n_pt() {return N_pt;}
-  
+
+ /// Turn off advection-diffusion-reaction equations
+ void disable_advection_diffusion_reaction_equations()
+ {Solve_advection_diffusion_reaction_equations=false;}
+
+ /// Turn on advection-diffusion-reaction equations
+ void enable_advection_diffusion_reaction_equations()
+ {Solve_advection_diffusion_reaction_equations=true;}
+
+ 
  /// Final override for disable ALE
  void disable_ALE() 
   {
@@ -1639,9 +1677,12 @@ public:
    //Fill in the residuals of the Navier-Stokes equations
    NavierStokesEquations<DIM>::fill_in_contribution_to_residuals(residuals);
 
-   //Fill in the residuals of the advection-diffusion eqautions
-   AdvectionDiffusionReactionEquations<2,DIM>::
-    fill_in_contribution_to_residuals(residuals);
+   if(Solve_advection_diffusion_reaction_equations)
+    {
+     //Fill in the residuals of the advection-diffusion eqautions
+     AdvectionDiffusionReactionEquations<2,DIM>::
+      fill_in_contribution_to_residuals(residuals);
+    }
   }
 
 
@@ -1808,15 +1849,19 @@ public:
    NavierStokesEquations<DIM>::
     fill_in_contribution_to_jacobian(residuals,jacobian);
 
-   //Calculate the advection-diffusion contributions 
-   //(diagonal block and residuals)
-   AdvectionDiffusionReactionEquations<2,DIM>::
-    fill_in_contribution_to_jacobian(residuals,jacobian);
-
-   //Add in the off-diagonal blocks
-   fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+   //If we are solving the advection equations
+   if(Solve_advection_diffusion_reaction_equations)
+    {
+     //Calculate the advection-diffusion contributions 
+     //(diagonal block and residuals)
+     AdvectionDiffusionReactionEquations<2,DIM>::
+      fill_in_contribution_to_jacobian(residuals,jacobian);
+     
+     //Add in the off-diagonal blocks
+     fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+    }
   } //End of jacobian calculation
-
+ 
 #endif
 
 
@@ -1829,12 +1874,17 @@ public:
    NavierStokesEquations<DIM>::
     fill_in_contribution_to_jacobian_and_mass_matrix(
      residuals,jacobian,mass_matrix);
-   
-   AdvectionDiffusionReactionEquations<2,DIM>::
-    fill_in_contribution_to_jacobian_and_mass_matrix(
-     residuals,jacobian,mass_matrix);
 
-   fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+   //If we are solving the advection equations
+      if(Solve_advection_diffusion_reaction_equations)
+    {
+     
+     AdvectionDiffusionReactionEquations<2,DIM>::
+      fill_in_contribution_to_jacobian_and_mass_matrix(
+       residuals,jacobian,mass_matrix);
+     
+     fill_in_off_diagonal_jacobian_blocks_by_fd(residuals,jacobian);
+    }
   }
 
  void integrated_C_and_M(double &int_C, double &int_M)

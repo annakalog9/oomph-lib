@@ -30,8 +30,9 @@
 
 //At the moment the assumption that bulk surfactant is only present in
 //the lower layer is handled by pinning all values in the upper layer
-//and hijacking the values along the interface to prevent the upper
-//layer making any contribution at all. If the problem is to be generalised
+//and switching off the contributions to the transport equations in the upper
+//elements to prevent the upper layer making any contribution at all.
+//If the problem is to be generalised
 //to allow surfactant transport in both layers then an additional field
 //will have to be added with a new variable that is pinned (and hijacked)
 //in the lower field. Wherever possible I've tried to stick to the notation
@@ -41,6 +42,8 @@
 //Simple checks that pass are that mass of surfactant is conserved, for
 //a suitably small timestep; and that the steady solution matches the
 //analytic expression.
+
+#include<iostream>
 
 //Oomph-lib headers, 
 //We require the generic header
@@ -67,7 +70,7 @@ namespace oomph
 
 namespace Control_Parameters
 {
- bool Periodic_BCs = false; //true;
+ bool Periodic_BCs = true;
 }
 
   
@@ -295,15 +298,19 @@ public:
 /// These are essentially point elements that are created
 /// from existing periodic nodes.
 //=============================================================
-class DependentPositionPointElement : public virtual SolidPointElement, public virtual SolidFaceElement
+class DependentPositionPointElement : public virtual SolidPointElement,
+                                      public virtual SolidFaceElement
 {
   //Dependent node
   Node* Dependent_node_pt;
 
   //Face ID
   unsigned Id;
-  
-  /// Fill in the residuals for the volume constraint
+
+ //Boolean to indicate whether this is on the interface
+ bool Is_on_interface;
+ 
+   /// Fill in the residuals for the volume constraint
  void fill_in_generic_contribution_to_residuals_match_position(
   Vector<double> &residuals,
   DenseMatrix<double> &jacobian,
@@ -311,82 +318,89 @@ class DependentPositionPointElement : public virtual SolidPointElement, public v
   {
     //Cache the node
     Node* const nod_pt = this->node_pt(0);
+
+    //Storage for the local equation number
+    int local_eqn = 0;
     
     //Read out the index at which the Lagrange multiplier is stored
     const unsigned lm_index = dynamic_cast<BoundaryNodeBase*>(nod_pt)
-      ->index_of_first_value_assigned_by_face_element(Id);
+     ->index_of_first_value_assigned_by_face_element(Id);
     
     //Read out the Lagrange multiplier
     const double lambda = nod_pt->value(lm_index);
     
-    int local_eqn = 0;
+    //Add Lagrange multipier contribution to solid mechanics first
     
+    //ALH Not sure this is needed
+    
+    //Get the local equation for the master node
+    /*local_eqn = this->position_local_eqn(0,0,1);
+    if(local_eqn >=0)
+     {
+      residuals[local_eqn] = lambda;
+      
+      if(flag)
+       {
+        int local_unknown = this->nodal_local_eqn(0,lm_index);
+        if(local_unknown >= 0)
+         {
+          jacobian(local_eqn,local_unknown) = 1.0;
+         }
+       }
+       }*/
+
+    
+    //Get the local equation for the dependent node,
+    //This is the node that the Lagrange multiplier should be affecting
+    local_eqn = this->external_local_eqn(0,1);
+    if(local_eqn >=0)
+     {
+      residuals[local_eqn] = -lambda;
+      
+      if(flag)
+       {
+        int local_unknown = this->nodal_local_eqn(0,lm_index);
+        if(local_unknown >= 0)
+         {
+          jacobian(local_eqn,local_unknown) = -1.0;
+         }
+       }
+     }
+    //End of Lagrange multiplier eqn
+     
     //HARD-CODED DIRECTION THAT HAS TO MATCH IS Y (1)
     //If the master is pinned then we don't bother to do anything
     //Loop over the number of coordinate directions
     //Let's get the Lagrange multiplier
     local_eqn = this->nodal_local_eqn(0,lm_index);
     
+    //Residuals for matching vertical positions between the nodes
+
     //If it's not a boundary condition (i.e. not pinned)
     //then add the lagrange multiplier
-	if(local_eqn >=0)
-	  {
-	    residuals[local_eqn] = nod_pt->x(1) - Dependent_node_pt->x(1); 
-	    //Jacobian terms
-	    if(flag)
-	      {
-		int local_unknown = this->position_local_eqn(0,0,1);
-		//The entry in the jacobian is one
-		if(local_unknown >= 0)
-		  {
-		    jacobian(local_eqn,local_unknown) = 1.0;
-		  }
-		
-		//The off diagonal term is minus one, but
-		//we need to work out the corresponding external equation numbers
-		//There is only one external datum so the first entry is the required number
-		local_unknown = this->external_local_eqn(0,1);
-		if(local_unknown >= 0)
-		  {
-		    jacobian(local_eqn,local_unknown) = -1.0;
-		  }
-	      } //End of Jacobian calculation
-	  }
-	//End of Lagrange multiplier eqn
+    if(local_eqn >=0)
+     {
+      residuals[local_eqn] = nod_pt->x(1) - Dependent_node_pt->x(1); 
+      //Jacobian terms
+      if(flag)
+       {
+        int local_unknown = this->position_local_eqn(0,0,1);
+        //The entry in the jacobian is one
+        if(local_unknown >= 0)
+         {
+          jacobian(local_eqn,local_unknown) = 1.0;
+         }
 	
-	//Add Lagrange multipier contribution to solid mechanics
-	
-	//Get the local equation for the master node
-	local_eqn = this->position_local_eqn(0,0,1);
-	if(local_eqn >=0)
-	  {
-	    residuals[local_eqn] = lambda;
-	    
-	    if(flag)
-	      {
-		int local_unknown = this->nodal_local_eqn(0,lm_index);
-		if(local_unknown >= 0)
-		  {
-		    jacobian(local_eqn,local_unknown) = 1.0;
-		  }
-	      }
-	  }
-	
-	//Get the local equation for the dependent node
-	local_eqn = this->external_local_eqn(0,1);
-	if(local_eqn >=0)
-	  {
-	    residuals[local_eqn] = -lambda;
-	    
-	    if(flag)
-	      {
-		int local_unknown = this->nodal_local_eqn(0,lm_index);
-		if(local_unknown >= 0)
-		  {
-		    jacobian(local_eqn,local_unknown) = -1.0;
-		  }
-	      }
-	  }
+        //The off diagonal term is minus one, but
+        //we need to work out the corresponding external equation numbers
+        //There is only one external datum so the first entry is the required number
+        local_unknown = this->external_local_eqn(0,1);
+        if(local_unknown >= 0)
+         {
+          jacobian(local_eqn,local_unknown) = -1.0;
+         }
+       } //End of Jacobian calculation
+     }
     
   }
 
@@ -394,8 +408,9 @@ class DependentPositionPointElement : public virtual SolidPointElement, public v
 public:
 
   //Constructor: Make this from a single Node
-  DependentPositionPointElement(Node* const &node_pt, Node *const &dependent_node_pt, const unsigned &id=0) :
-    Dependent_node_pt(dependent_node_pt), Id(id)
+ DependentPositionPointElement(Node* const &node_pt, Node *const &dependent_node_pt,
+                               const unsigned &id=0, const bool &is_on_interface=false) :
+  Dependent_node_pt(dependent_node_pt), Id(id), Is_on_interface(is_on_interface)
   {
     //There is only one node
     this->set_n_node(1);
@@ -475,8 +490,234 @@ public:
           allow_automatic_creation_of_vertices_on_boundaries,
           comm_pt) {}
 
+ void snap_nodes_onto_boundary(RefineableTriangleMesh<ELEMENT>*& new_mesh_pt,
+                               const unsigned& b)
+  {
+   std::cout << "Custom snap algorithm\n";
+   //Call the standard function
+   RefineableTriangleMesh<ELEMENT>::snap_nodes_onto_boundary(new_mesh_pt,b);
+   //Now adjust the periodic boundries
+   std::cout << "Completed standard snap\n";
+   
+       //Now we need to make the boundaries periodic. Boundary 1 is made periodic from Boundary 3
+    //Let's load in the boundary nodes
+    Vector<Node*> boundary_nodes1, boundary_nodes3;
+    unsigned n_boundary_node1 = new_mesh_pt->nboundary_node(1);
+    unsigned n_boundary_node3 = new_mesh_pt->nboundary_node(3);
+
+     
+    std::cout << "Snap boundaries " << n_boundary_node1 << " " << n_boundary_node3  << std::endl;
+    
+    if(n_boundary_node1 != n_boundary_node3)
+     {
+      std::ostringstream error_message;
+      error_message << "Different numbers of nodes on putative periodic boundary, "
+                    << n_boundary_node1 << " " << n_boundary_node3 << "\n";
+      throw OomphLibError(error_message.str(),
+                          "snap_nodes_onto_boundary()",
+                          OOMPH_EXCEPTION_LOCATION);
+     }
+    
+    
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {boundary_nodes1.push_back(new_mesh_pt->boundary_node_pt(1,n));}
+    for(unsigned n=0;n<n_boundary_node3;++n)
+     {boundary_nodes3.push_back(new_mesh_pt->boundary_node_pt(3,n));}
+    
+    //Sort them
+    std::sort(boundary_nodes1.begin(),boundary_nodes1.end(),CompareNodeCoordinates());
+    std::sort(boundary_nodes3.begin(),boundary_nodes3.end(),CompareNodeCoordinates());
+
+    //Let's adjust the nodal positions to be the averages
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {
+      double y1 = boundary_nodes1[n]->x(1);
+      double y3 = boundary_nodes3[n]->x(1);
+
+      double average_y = 0.5*(y1 + y3);
+
+      boundary_nodes1[n]->x(1) = average_y;
+      boundary_nodes3[n]->x(1) = average_y;
+
+                                        
+      std::cout << n << " " << boundary_nodes1[n]->x(1) << " " << boundary_nodes3[n]->x(1)
+                << " " << 0.5*(boundary_nodes1[n]->x(1) + boundary_nodes3[n]->x(1)) << "\n";
+      
+      if(boundary_nodes1[n]->is_on_boundary(4))
+       {std::cout << "1 " << n << " " << boundary_nodes1[n]->x(1) << "\n";}
+      if(boundary_nodes3[n]->is_on_boundary(4))
+       {std::cout << "3 " << n << " " << boundary_nodes3[n]->x(1) << "\n";}
+       }
+
+   
+  }
+
+
+ //Helper function for the custom update of the nodes on the p-th  PSLG of
+ //the outer boundary polygon
+ void add_common_nodes_to_boundary_vector(TriangleMeshPolygon*& polygon_pt,
+                                          const unsigned &bound,
+                                          const std::set<double> &vertical_coordinates,
+                                          Vector<Vector<double> > &vector_vertex_node)
+  {
+   unsigned n_common = vertical_coordinates.size();
+   std::cout << n_common << " nodes required to match both boundaries\n";
+
+   //The requirements here are specific for this mesh, so I've not
+   //attempted to write this as general code.
+   
+   //The idea is to loop over the existing nodes and add only the
+   //missing nodes, but it's easier to create new vectors
+   unsigned n_vertex = vector_vertex_node.size();
+   
+   //We only need to do something if the number of nodes differs.
+   if(n_common!=n_vertex)
+    {
+     //Store the x value (assumed to be the same for all nodes)
+     double x = vector_vertex_node[0][0];
+     
+     //Are we increasing or decreasing in y
+     //If the last node has a greater y coordinate than the first
+     //then ascending
+     if(vector_vertex_node[n_vertex-1][1] > vector_vertex_node[0][1])
+      {
+       //Clear the vector
+       vector_vertex_node.clear();
+       vector_vertex_node.resize(n_common);
+       unsigned i=0;
+       //Loop over the nodes in the common set and add in
+       for(std::set<double>::iterator it=vertical_coordinates.begin();
+           it!=vertical_coordinates.end();++it)
+        {
+         //Create the coordinates
+         Vector<double> new_vertex_coord(2);
+         new_vertex_coord[0] = x; new_vertex_coord[1] = *it;
+         vector_vertex_node[i] = new_vertex_coord;
+         ++i;
+        }
+      }
+     //Otherwise do it in reverse
+     else
+      {
+       //Clear the vector
+       vector_vertex_node.clear();
+       vector_vertex_node.resize(n_common);
+       unsigned i=0;
+       //Loop over the nodes in the common set and add in
+       for(std::set<double>::reverse_iterator it=vertical_coordinates.rbegin();
+           it!=vertical_coordinates.rend();++it)
+        {
+         //Create the coordinates
+         Vector<double> new_vertex_coord(2);
+         new_vertex_coord[0] = x; new_vertex_coord[1] = *it;
+         vector_vertex_node[i] = new_vertex_coord;
+         ++i;
+        }
+      }
+     
+     
+     // Now update the polyline according to the new vertices
+     //Get the boundary id
+     //Find the value of p corresponding to the boundary id
+     const unsigned n_polyline = polygon_pt->npolyline();
+     unsigned p=n_polyline+1;
+     //Find the polyline in question
+     for(unsigned n=0;n<n_polyline;++n)
+      {
+       if(polygon_pt->polyline_pt(n)->boundary_id() == bound)
+        {
+         p=n;
+         break;
+        }
+      }
+
+     //If we haven't found it, report error
+     if(p==n_polyline+1)
+      {
+       throw OomphLibError("Boundary ID not found in polygon\n",
+                           OOMPH_CURRENT_FUNCTION,
+                           OOMPH_EXCEPTION_LOCATION);
+      }
+
+     //Create a new polyline that will have the new nodes on it
+     TriangleMeshPolyLine* tmp_polyline_pt =
+      new TriangleMeshPolyLine(vector_vertex_node, bound);
+
+     // Create a temporal "curve section" version of the recently
+     // created polyline
+     TriangleMeshCurveSection* tmp_curve_section_pt = tmp_polyline_pt;
+
+     // Tolerance below which the middle point can be deleted (ratio of
+     // deflection to element length)
+     double unrefinement_tolerance =
+      polygon_pt->polyline_pt(p)->unrefinement_tolerance();
+
+     // Tolerance to add points
+     double refinement_tolerance =
+      polygon_pt->polyline_pt(p)->refinement_tolerance();
+     
+     // Establish refinement and unrefinement tolerance on the new polyline
+     tmp_polyline_pt->set_unrefinement_tolerance(unrefinement_tolerance);
+     tmp_polyline_pt->set_refinement_tolerance(refinement_tolerance);
+
+     // Establish the maximum length constraint
+     double maximum_length = polygon_pt->polyline_pt(p)->maximum_length();
+     tmp_polyline_pt->set_maximum_length(maximum_length);
+
+#ifdef OOMPH_HAS_MPI
+     // If the mesh is distributed check that the polyline still has
+     // vertices
+     if (this->is_mesh_distributed())
+      {
+       if (n_vertex >= 2)
+        {
+         // Pass the connection information from the old polyline to the
+         // new one
+         this->copy_connection_information(polygon_pt->polyline_pt(p),
+                                           tmp_curve_section_pt);
+        } // if (n_vertex >= 2)
+      } // if (this->is_mesh_distributed())
+     else
+#endif
+      {
+       // Pass the connection information from the old polyline to the
+       // new one
+       this->copy_connection_information(polygon_pt->polyline_pt(p),
+                                         tmp_curve_section_pt);
+      }
+
+     // Now update the polyline according to the new vertices but first
+     // check if the object is allowed to delete the representation or
+     // if it should be done by other object
+     bool delete_it_on_destructor = false;
+     
+     std::set<TriangleMeshCurveSection*>::iterator it =
+      this->Free_curve_section_pt.find(polygon_pt->curve_section_pt(p));
+
+      if (it != this->Free_curve_section_pt.end())
+      {
+        this->Free_curve_section_pt.erase(it);
+        delete polygon_pt->curve_section_pt(p);
+        delete_it_on_destructor = true;
+      }
+
+      // -------------------------------------------------------
+      // Copying the new representation
+      polygon_pt->curve_section_pt(p) = tmp_polyline_pt;
+
+      // Update the Boundary - Polyline map
+      this->Boundary_curve_section_pt[bound] = polygon_pt->curve_section_pt(p);
+
+      if (delete_it_on_destructor)
+      {
+        this->Free_curve_section_pt.insert(polygon_pt->curve_section_pt(p));
+      }
+
+    } //End of case if numbers of nodes are different
+  } 
+ 
  //Custom override
- bool update_polygon_custom(TriangleMeshPolygon*& polygon_pt)
+ void update_polygon_custom(TriangleMeshPolygon*& polygon_pt)
   {
    //Find the number of polylines
    const unsigned n_polyline = polygon_pt->npolyline();
@@ -484,21 +725,111 @@ public:
    
    for(unsigned n=0;n<n_polyline;++n)
     {
-     //Find the polylin
+     //Find the polyline
      TriangleMeshPolyLine* polyline_pt=polygon_pt->polyline_pt(n);
      unsigned boundary_id = polyline_pt->boundary_id();
      if(boundary_id==1) {polyline1_pt = polyline_pt;}
      if(boundary_id==3) {polyline3_pt = polyline_pt;}
     }
 
+   //If the periodic boundaries do not have the same number
+   //of nodes, then fix it so that they do
+   unsigned n_vertex1 = polyline1_pt->nvertex();
+   unsigned n_vertex3 = polyline3_pt->nvertex();
+
+   if(n_vertex1 != n_vertex3)
+    {
+     std::cout << "Different numbers of vertices across the periodic boundary:\n";
+     std::cout << n_vertex1 << " on boundary 1 and " << n_vertex3 << " on boundary 3\n";
+     
+     //Need to create the vector of vertex nodes
+     Vector<Vector<double> > vector_vertex_node1(n_vertex1);
+     Vector<Vector<double> > vector_vertex_node3(n_vertex3);
+     
+     //Let's find a common set of vertical coordinates
+     std::set<double> vertical_coordinates;
+     for(unsigned n=0;n<n_vertex1;++n)
+      {
+       //Push it back
+       vector_vertex_node1[n] = polyline1_pt->vertex_coordinate(n);
+       vertical_coordinates.insert(polyline1_pt->vertex_coordinate(n)[1]);
+      }
+     for(unsigned n=0;n<n_vertex3;++n)
+      {
+       vector_vertex_node3[n] = polyline3_pt->vertex_coordinate(n);
+       vertical_coordinates.insert(polyline3_pt->vertex_coordinate(n)[1]);
+      }
+
+     {
+      //Include a check for repeated nodes within a tolerance error
+      //The idea is to collect nodes that are within the tolerance and then merge them
+      //There should only ever be two nodes within a tolerance error
+      std::set<double>::iterator it=vertical_coordinates.begin();
+      while(it!=vertical_coordinates.end())
+       {
+        //Loop over the other elements in the set, starting at the current point
+        for(std::set<double>::iterator it2=std::next(it,1);it2!=vertical_coordinates.end();
+            ++it2)
+         {
+          const double y1 = *it;
+          const double y2 = *it2;
+          double dist = (y1-y2)*(y1-y2);
+          dist = sqrt(dist);
+          //If the two points are far enough apart then we're done
+          if(dist > ToleranceForVertexMismatchInPolygons::Tolerable_error)
+           {
+            break;
+           }
+          //Otherwise there should be only one node, erase the second one
+          else
+           {
+            vertical_coordinates.erase(it2);
+            break;
+           }
+         }
+        ++it;
+        }
+     }
+
+     //Add the common nodes to each boundary
+     add_common_nodes_to_boundary_vector(polygon_pt,1,vertical_coordinates,vector_vertex_node1);
+     add_common_nodes_to_boundary_vector(polygon_pt,3,vertical_coordinates,vector_vertex_node3);
+     
+     //Let's check
+     {
+      n_vertex1 = vector_vertex_node1.size();
+      for(unsigned i=0;i<n_vertex1;++i)
+       {
+        std::cout << vector_vertex_node1[i][0] << " "
+                  << vector_vertex_node1[i][1] << "\n";
+       }
+
+           std::cout << "============\n";
+      n_vertex3 = vector_vertex_node3.size();
+      for(unsigned i=0;i<n_vertex3;++i)
+       {
+        std::cout << vector_vertex_node3[i][0] << " "
+                  << vector_vertex_node3[i][1] << "\n";
+       }
+     }
+     std::cout << "============\n";
+
+     //Now allocate the new vertex nodes to the polyline
+     
+     
+     
+     
+    }
+   
+
    //Now let's see what we have
    std::cout << "Polyline 1\n";
    polyline1_pt->output(std::cout);
    std::cout << "Polyline 3\n";
    polyline3_pt->output(std::cout);
-   
-
   }
+
+  
  
  //Destructor 
  virtual ~RefineableSolidTwoLayerTriangleMesh () {}
@@ -547,7 +878,7 @@ public:
     {
      Surface_pinned = false;
      
-     //Unpin the heights of all nodes not on the boundaries
+     //Unpin the vertical positions of all nodes not on the top and bottom boundaries
      unsigned n_node = Bulk_mesh_pt->nnode();
      for(unsigned n=0;n<n_node;n++)
       {
@@ -580,9 +911,27 @@ public:
 	  Node* nod_pt = el_pt->node_pt(n);
 	  nod_pt->unpin(4);
 	  nod_pt->unpin(5);
-	}
+          
+          //Also unpin the periodic LM
+          if((Control_Parameters::Periodic_BCs) &&
+             (nod_pt->is_on_boundary(1)))
+           {
+            unsigned n_value = dynamic_cast<BoundaryNodeBase*>(nod_pt)
+             ->nvalue_assigned_by_face_element(Periodic_index);
+            //Check that the Lagrange multiplier has been allocated
+            if(n_value > 0)
+             {
+              std::cout << "I have had a LM allocated ";
+              unsigned periodic_lm_index =
+               dynamic_cast<BoundaryNodeBase*>(nod_pt)
+               ->index_of_first_value_assigned_by_face_element(Periodic_index);
+               std::cout << periodic_lm_index << "\n";
+               //Pin this lagrange multiplier
+               nod_pt->unpin(periodic_lm_index);
+             }
+           }
+        }
       }
-
      
      //Now unpin the bulk concentrations in the lower region
      const unsigned n_lower = Bulk_mesh_pt->nlower();
@@ -646,7 +995,9 @@ public:
 
     if(n_boundary_node1 != n_boundary_node3)
      {
-      std::cout << "Problem: trying to make boundaries periodic with different numbers of nodes\n";
+      throw OomphLibError("Different numbers of nodes on putative periodic boundary.",
+                          OOMPH_CURRENT_FUNCTION,
+                          OOMPH_EXCEPTION_LOCATION);
      }
     
     
@@ -665,6 +1016,15 @@ public:
       std::cout << n << " "  << boundary_nodes1[n]->x(1) << " " << boundary_nodes3[n]->x(1) << "\n";
      }
 
+    //Let's adjust the nodal positions
+    for(unsigned n=0;n<n_boundary_node1;++n)
+     {          
+      if(boundary_nodes1[n]->is_on_boundary(4))
+       {std::cout << "1 " << n << " " << boundary_nodes1[n]->x(1) << "\n";}
+      if(boundary_nodes3[n]->is_on_boundary(4))
+       {std::cout << "3 " << n << " " << boundary_nodes3[n]->x(1) << "\n";}
+     }
+        
     for(unsigned n=0;n<n_boundary_node1;++n)
      {
       boundary_nodes1[n]->make_periodic(boundary_nodes3[n]);
@@ -703,7 +1063,7 @@ public:
 	Node* nod_pt = Bulk_mesh_pt->boundary_node_pt(3,n);
 	if(!(nod_pt->is_on_boundary(0)) &&
 	   !(nod_pt->is_on_boundary(2)) &&
-	   !(nod_pt->is_on_boundary(4)))
+           !(nod_pt->is_on_boundary(4)))
          {
           unsigned lm_index = dynamic_cast<BoundaryNodeBase*>(nod_pt)
            ->index_of_first_value_assigned_by_face_element(
@@ -742,9 +1102,6 @@ public:
  /// Rebuild the mesh of interface elements after adapting the bulk mesh
  void actions_after_adapt()
   {
-
-   Bulk_mesh_pt->output("crap.dat",3);
-   
     // Determine number of bulk elements in lower/upper fluids
     const unsigned n_lower = Bulk_mesh_pt->nlower();
     const unsigned n_upper = Bulk_mesh_pt->nupper();
@@ -795,6 +1152,7 @@ public:
       // Upcast from GeneralisedElement to the present element
       ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
                                               upper_layer_element_pt(e));
+
       
       // Set the diffusivities number
       el_pt->diff_pt() = &Global_Physical_Variables::D;
@@ -829,9 +1187,12 @@ public:
       
       // Set the constitutive law
       el_pt->constitutive_law_pt() = Constitutive_law_pt;
+
+      // Do not solve the transport equations (no surfactant here)
+      el_pt->disable_advection_diffusion_reaction_equations();
       
      } // End of loop over bulk elements in upper fluid
-    
+
 
     // Create the interface elements
     //Must be done *after* the physical parameters have been set, because we
@@ -851,6 +1212,7 @@ public:
     
     if(Control_Parameters::Periodic_BCs)
       {
+       std::cout << "Setting up periodic boundaries\n";
        //Need to reset periodic boundary conditions on the boundaries...
        this->setup_periodic_boundaries();
        
@@ -994,23 +1356,43 @@ public:
 	//If there is no master node, then the node has no
 	//counterpart on the other side and is therefore
 	//not a degree of freedom and does not need to be
-	//dependentd
+	//dependent
 	if(master_node_pt!=0)
 	  {
 	    
-	    //Only create dependents for nodes that are not on the interface
+	   //Only create dependents for nodes that are not on the interface
+           //The interface is driven by the kinematic condition, but we
+           //also need to be able to make it periodic.
+           //Thus, we need to have the kinematic condition on one "side"
+           //and the periodicity condition on the other.
 	    if(!(master_node_pt->is_on_boundary(0)) &&
 	       !(master_node_pt->is_on_boundary(2)) &&
-	       !(master_node_pt->is_on_boundary(4)))
+               !(master_node_pt->is_on_boundary(4)))
 	      {
 		//Create the dependent node with a position ID
 		this->Dependent_position_mesh_pt->
 		  add_element_pt(new DependentPositionPointElement(master_node_pt,
-							       nod_pt,Periodic_index));
+                                                                   nod_pt,Periodic_index));
 	      }
-	  }
-      }
+            //If we are on the interface, create a custom version of the element to
+            //avoid setting up a singular problem when combining Lagrange multipliers to enforce
+            //both periodicity and the kinematic condition
+            if(master_node_pt->is_on_boundary(4))
+             {
+              const bool is_on_interface = true;
+              //Create the dependent node with a position ID
+              this->Dependent_position_mesh_pt->
+               add_element_pt(new DependentPositionPointElement(master_node_pt,
+                                                                nod_pt,Periodic_index,
+                                                              is_on_interface));
+                                                              }
+              
+            
+          }
+        
+      } //End of loop over boundary nodes
   }
+ 
 
 
 
@@ -1020,7 +1402,7 @@ public:
     // Determine number of interface elements
     const unsigned n_dependent_element = Dependent_position_mesh_pt->nelement();
     
-    // Loop over interface elements and delete
+    // Loop over the dependent position elements and delete
     for(unsigned e=0;e<n_dependent_element;e++)
       {
 	delete Dependent_position_mesh_pt->element_pt(e);
@@ -1035,48 +1417,40 @@ public:
  void create_interface_elements()
   {
    //In the adaptive formulation the only way that we will know which elements
-   //are on the lower or upper side is to use the density ratio
+   //are on the lower or upper side is to use the viscosity ratio. This will work
+   //even if the density ratio is set to 1 because we are distinguishing based on
+   //the pointer.
 
-   //Store number of 1d nodes
-   const unsigned n_node_1d = Bulk_mesh_pt->finite_element_pt(0)->nnode_1d();
    
    // Determine number of bulk elements adjacent to interface (boundary 4)
    const unsigned n_element = this->Bulk_mesh_pt->nboundary_element(4);
    
-   // Loop over those elements adjacent to the interface
+   // Loop over all those elements adjacent to the interface
    for(unsigned e=0;e<n_element;e++)
     {
      // Get pointer to the bulk element that is adjacent to the interface
      ELEMENT* bulk_elem_pt = dynamic_cast<ELEMENT*>(
       this->Bulk_mesh_pt->boundary_element_pt(4,e));
-     
+
+     // Find index of the face of element e that corresponds to the interface
+     const int face_index = this->Bulk_mesh_pt->face_index_at_boundary(4,e);
+       
      // We only want to attach interface elements to the bulk elements
      // which are BELOW the interface, and so we filter out those above by
      // referring to the viscosity_ratio_pt
-     if(bulk_elem_pt->viscosity_ratio_pt() !=&Global_Physical_Variables::M)
-    {
-     // Find index of the face of element e that corresponds to the interface
-     const int face_index = this->Bulk_mesh_pt->face_index_at_boundary(4,e);
-     
-     // Create the interface element
-     INTERFACE_ELEMENT* interface_element_element_pt =
-      new INTERFACE_ELEMENT(bulk_elem_pt,face_index);
 
-     // Add the interface element to the surface mesh
-     this->Surface_mesh_pt->add_element_pt(interface_element_element_pt);
-    }
-//Otherwise it's on the upper side
-     else
+     // If the adjacent element is on the lower side (viscosity ratio not changed)
+     if(bulk_elem_pt->viscosity_ratio_pt() !=&Global_Physical_Variables::M)
       {
-	//Hijack all nodes of all elements
-       unsigned n_max_node = n_node_1d;
-       for(unsigned n=0;n<n_max_node;++n)
-        {
-         (void)bulk_elem_pt->hijack_nodal_value(n,2,false);
-         (void)bulk_elem_pt->hijack_nodal_value(n,3,false);
-        }
+       // Create the interface element
+       INTERFACE_ELEMENT* interface_element_element_pt =
+        new INTERFACE_ELEMENT(bulk_elem_pt,face_index);
+       
+       // Add the interface element to the surface mesh
+       this->Surface_mesh_pt->add_element_pt(interface_element_element_pt); 
       }
     }
+
    
  // --------------------------------------------------------
  // Complete the setup to make the elements fully functional
@@ -1450,8 +1824,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  //This is rquired to ensure that we have the same number of nodes on each side
  //and so the boundaries can be made periodic
  unsigned n_x = 10;
- unsigned n_y1 = 4;
- unsigned n_y2 = 4;
+ unsigned n_y1 = 8;
+ unsigned n_y2 = 8;
 
   if(n_x < 2) {std::cout  << "n_x needs to be 2 or more\n";}
   if(n_y1 < 2) {std::cout << "n_y1 needs to be 2 or more\n";}
@@ -1703,6 +2077,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    new RefineableSolidTwoLayerTriangleMesh<ELEMENT>(
      triangle_mesh_parameters, this->time_stepper_pt());
 
+ Bulk_mesh_pt->disable_automatic_creation_of_vertices_on_boundaries();
+ 
 
  // Create and set the error estimator for spatial adaptivity
  Bulk_mesh_pt->spatial_error_estimator_pt() = new Z2ErrorEstimator;
@@ -1725,6 +2101,9 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  const unsigned n_lower = Bulk_mesh_pt->nlower();
 
 
+ std::ofstream f_lower("lower.dat");
+ std::ofstream f_upper("upper.dat");
+ 
  // Loop over bulk elements in lower fluid
  for(unsigned e=0;e<n_lower;e++)
   {
@@ -1732,6 +2111,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
                                            lower_layer_element_pt(e));
 
+   el_pt->output(f_lower,2);
+   
    // Set the diffusivities number
    el_pt->diff_pt() = &Global_Physical_Variables::D;
 
@@ -1771,6 +2152,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
                                            upper_layer_element_pt(e));
 
+   el_pt->output(f_upper,2);
+   
    // Set the diffusivities number
    el_pt->diff_pt() = &Global_Physical_Variables::D;
 
@@ -1805,6 +2188,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    // Set the constitutive law
    el_pt->constitutive_law_pt() = Constitutive_law_pt;
 
+   //Turn off the solution of the advection-diffusion-reaction equations
+   el_pt->disable_advection_diffusion_reaction_equations();
    
    //Need to pin the values of concentration and micelle up here
    unsigned n_el_node = el_pt->nnode();
@@ -1881,13 +2266,33 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
        nod_pt->pin_position(1);
        //Don't forget to pin the Lagrange multipliers as well
        if(nod_pt->is_on_boundary(4))
-	 {
-	   //Lagrange multiplier is always value 5
-	   unsigned lagrange_multiplier_index = 5;
-	   nod_pt->pin(lagrange_multiplier_index);
-	 }
+        {
+         //Lagrange multiplier is always value 5
+         unsigned lagrange_multiplier_index = 5;
+         nod_pt->pin(lagrange_multiplier_index);
+         
+         //There is one additional Lagrange multiplier for the Periodic
+         //node on the interface that also needs to be pinned
+         if((Control_Parameters::Periodic_BCs) &&
+            (nod_pt->is_on_boundary(1)))
+          {
+           unsigned n_value = dynamic_cast<BoundaryNodeBase*>(nod_pt)
+            ->nvalue_assigned_by_face_element(Periodic_index);
+           //Check that the Lagrange multiplier has been allocated
+           if(n_value > 0)
+            {
+             std::cout << "I have had a LM allocated ";
+             unsigned periodic_lm_index = dynamic_cast<BoundaryNodeBase*>(nod_pt)
+             ->index_of_first_value_assigned_by_face_element(Periodic_index);
+             std::cout << periodic_lm_index << "\n";
+             //Pin this lagrange multiplier
+             nod_pt->pin(periodic_lm_index);
+            }
+           }
+	}
      }
   }
+
 
  // Set the boundary conditions for this problem: All nodes are
  // free by default -- only need to pin the ones that have Dirichlet 

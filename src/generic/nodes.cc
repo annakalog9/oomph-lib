@@ -191,7 +191,7 @@ namespace oomph
     {
       return;
     }
-
+    
     // Delete the double storage arrays at once (they were allocated at once)
     delete[] Value[0];
     // Delete the pointers to the arrays.
@@ -2962,8 +2962,8 @@ namespace oomph
         error_stream.str(), OOMPH_CURRENT_FUNCTION, OOMPH_EXCEPTION_LOCATION);
     }
 
-    // If the node to be copied from is a copy then copy it's "copied_node_pt"
-    // instead.
+    // If the node to be copied from is a copy then copy its "copied_node_pt"
+    // instead; i.e. the original node's data.
     if (copied_node_pt->is_a_copy())
     {
       make_node_periodic(node_pt, copied_node_pt->copied_node_pt());

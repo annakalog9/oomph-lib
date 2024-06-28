@@ -125,15 +125,12 @@ namespace oomph
     /// Function to spawn messages from uncaught errors
     extern void spawn_errors_from_uncaught_errors();
 
-    /// Clean up function that deletes anything dynamically allocated
-    /// in this namespace
-    extern void clean_up_memory();
 
     /// Stream to output error messages
     extern std::ostream* Error_message_stream_pt;
 
     /// String stream that records the error message
-    extern std::stringstream* Exception_stringstream_pt;
+    extern std::stringstream Exception_stringstream;
 
   } // namespace TerminateHelper
 
