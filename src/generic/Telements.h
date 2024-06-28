@@ -1594,12 +1594,12 @@ namespace oomph
       return 3;
     }
 
-    //Return the number of nodes on each face
+    // Return the number of nodes on each face
     unsigned nnode_on_face() const
     {
-     return NNODE_1D;
+      return NNODE_1D;
     }
-    
+
     /// Public access function for Node_on_face.
     unsigned get_bulk_node_number(const int& face_index,
                                   const unsigned& i) const
@@ -3118,13 +3118,13 @@ namespace oomph
       return 4;
     }
 
-    //Return the number of nodes on each face
+    // Return the number of nodes on each face
     unsigned nnode_on_face() const
     {
-     return (NNODE_1D * (NNODE_1D + 1)) / 2;
+      return (NNODE_1D * (NNODE_1D + 1)) / 2;
     }
 
-    
+
     /// Public access function for Node_on_face.
     unsigned get_bulk_node_number(const int& face_index,
                                   const unsigned& i) const

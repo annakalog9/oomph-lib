@@ -191,7 +191,7 @@ namespace oomph
     {
       return;
     }
-    
+
     // Delete the double storage arrays at once (they were allocated at once)
     delete[] Value[0];
     // Delete the pointers to the arrays.
