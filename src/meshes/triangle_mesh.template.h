@@ -1305,13 +1305,13 @@ namespace oomph
         }
       }
 
-      //ALH
-      //input_string_stream << " -S";
-      
+      // ALH
+      // input_string_stream << " -S";
+
       // Convert the Input string in *char required by the triangulate function
       char triswitches[100];
       sprintf(triswitches, "%s", input_string_stream.str().c_str());
-      
+
       // Build the mesh using triangulate function
       triangulate(triswitches, &triangulate_io, &Triangulateio, 0);
 
