@@ -2885,7 +2885,7 @@ namespace oomph
   inline void BoundaryNode<SolidNode>::make_periodic(Node* const& node_pt)
   {
 #ifdef PARANOID
-   std::ostringstream warn_message;
+    std::ostringstream warn_message;
     warn_message << "You are trying to make a Solid Node Periodic.\n"
                  << "This action will reset pointers to stored values and "
                  << "equation numbers,\n"
@@ -2901,7 +2901,7 @@ namespace oomph
                  << "If you plan to use refineability, then the easiest\n"
                  << "option is to use Lagrange multipliers.\n";
     OomphLibWarning(
-     warn_message.str(), OOMPH_CURRENT_FUNCTION, OOMPH_EXCEPTION_LOCATION);
+      warn_message.str(), OOMPH_CURRENT_FUNCTION, OOMPH_EXCEPTION_LOCATION);
 #endif
 
     BoundaryNodeBase::make_node_periodic(this, node_pt);

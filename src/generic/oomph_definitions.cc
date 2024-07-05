@@ -62,14 +62,14 @@ namespace oomph
     /// Setup terminate helper
     void setup()
     {
-     std::set_terminate(spawn_errors_from_uncaught_errors);
+      std::set_terminate(spawn_errors_from_uncaught_errors);
     }
 
     /// Flush string stream of error messages (call when error has been
     /// caught)
     void suppress_exception_error_messages()
     {
-     Exception_stringstream.str("");
+      Exception_stringstream.str("");
     }
 
     /// Function to spawn messages from uncaught errors

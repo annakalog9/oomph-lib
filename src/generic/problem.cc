@@ -215,7 +215,6 @@ namespace oomph
       Mesh_pt->flush_element_and_node_storage();
       delete Mesh_pt;
     }
-
   }
 
   //=================================================================

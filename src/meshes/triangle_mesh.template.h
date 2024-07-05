@@ -799,7 +799,7 @@ namespace oomph
       // Convert to a *char required by the triangulate function
       char triswitches[100];
       sprintf(triswitches, "%s", input_string_stream.str().c_str());
-      
+
       // Create a boolean to decide whether or not to use attributes.
       // The value of this will only be changed in build_triangulateio
       // depending on whether or not the .poly file contains regions
@@ -2365,7 +2365,7 @@ namespace oomph
       // Convert to a *char required by the triangulate function
       char triswitches[100];
       sprintf(triswitches, "%s", input_string_stream.str().c_str());
-      
+
       // Build triangulateio refined object
       triangulate(triswitches, &triangle_refine, &this->Triangulateio, 0);
 
@@ -3576,8 +3576,8 @@ namespace oomph
       const bool& check_only = false);
 
     /// Snap the boundary nodes onto any curvilinear boundaries
-    virtual void snap_nodes_onto_boundary(RefineableTriangleMesh<ELEMENT>*& new_mesh_pt,
-                                          const unsigned& b);
+    virtual void snap_nodes_onto_boundary(
+      RefineableTriangleMesh<ELEMENT>*& new_mesh_pt, const unsigned& b);
 
     /// Helper function
     /// Creates an unsorted face mesh representation from the specified
