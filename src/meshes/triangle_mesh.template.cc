@@ -31029,10 +31029,6 @@ namespace oomph
         const double t_start_create_new_adapted_mesh = TimingHelpers::timer();
 
 
-        std::cout << "Yo "
-                  << this->Allow_automatic_creation_of_vertices_on_boundaries
-                  << "\n";
-
         // Solid mesh?
         if (solid_mesh_pt != 0)
         {
