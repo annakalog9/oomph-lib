@@ -215,11 +215,6 @@ namespace oomph
       Mesh_pt->flush_element_and_node_storage();
       delete Mesh_pt;
     }
-
-    // Since we called the TerminateHelper setup function in the constructor,
-    // we need to delete anything that was dynamically allocated (as it's
-    // just a namespace and so doesn't have it's own destructor) in the function
-    TerminateHelper::clean_up_memory();
   }
 
   //=================================================================

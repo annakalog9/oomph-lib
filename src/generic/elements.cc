@@ -3172,7 +3172,7 @@ namespace oomph
   //=======================================================================
   FiniteElement::~FiniteElement()
   {
-    // Delete the storage allocated for the pointers to the loca nodes
+    // Delete the storage allocated for the pointers to the local nodes
     delete[] Node_pt;
 
     // Delete the storage allocated for the nodal numbering schemes

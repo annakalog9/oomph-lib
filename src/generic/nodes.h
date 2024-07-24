@@ -2899,8 +2899,7 @@ namespace oomph
                  << "(iii) Hijack the nodal coordinates on one side "
                  << "and specify an alternative equation.\n\n"
                  << "If you plan to use refineability, then the easiest\n"
-                 << "option is to use Lagrange multipliers.\n"
-                 << std::endl;
+                 << "option is to use Lagrange multipliers.\n";
     OomphLibWarning(
       warn_message.str(), OOMPH_CURRENT_FUNCTION, OOMPH_EXCEPTION_LOCATION);
 #endif

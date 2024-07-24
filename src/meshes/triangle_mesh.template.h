@@ -1305,6 +1305,9 @@ namespace oomph
         }
       }
 
+      // ALH
+      // input_string_stream << " -S";
+
       // Convert the Input string in *char required by the triangulate function
       char triswitches[100];
       sprintf(triswitches, "%s", input_string_stream.str().c_str());
@@ -3573,8 +3576,8 @@ namespace oomph
       const bool& check_only = false);
 
     /// Snap the boundary nodes onto any curvilinear boundaries
-    void snap_nodes_onto_boundary(RefineableTriangleMesh<ELEMENT>*& new_mesh_pt,
-                                  const unsigned& b);
+    virtual void snap_nodes_onto_boundary(
+      RefineableTriangleMesh<ELEMENT>*& new_mesh_pt, const unsigned& b);
 
     /// Helper function
     /// Creates an unsorted face mesh representation from the specified
@@ -3618,7 +3621,7 @@ namespace oomph
     /// Updates the polylines using a custom script that can be overloaded
     /// by the user. This is called after the standard updates and can
     /// be used to adjust nodal positions for example
-    virtual bool update_polygon_custom(TriangleMeshPolygon*& polygon_pt){};
+    virtual void update_polygon_custom(TriangleMeshPolygon*& polygon_pt){};
 
 
     /// Updates the open curve but using the elements area instead
