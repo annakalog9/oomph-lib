@@ -71,6 +71,8 @@ namespace oomph
 namespace Control_Parameters
 {
  bool Periodic_BCs = true;
+
+ bool Pin_Micelle = true;
 }
 
   
@@ -81,7 +83,7 @@ namespace Global_Physical_Variables
 {
   /// Geometry
   //----------------
-  double L = 1.0;
+  double L = 2.4;//1.0;
 
   /// Fluid property Ratios
   //----------------------------
@@ -94,10 +96,10 @@ namespace Global_Physical_Variables
   //Vecosity ratio;
   /// Ratio of viscosity in upper fluid to viscosity in lower
   /// fluid. Reynolds number etc. is based on viscosity in lower fluid.
-  double M = 17.0;
+  double M = 0.5;//17.0;
 
   //Dimensionless position of interface (relative to a total domain height of 1)
-  double H0 = 0.2;
+  double H0 = 1.0/11.0; //0.2;
 
   //Dimensionless size of perturbation to the interface
   double Ha = H0/5.0;
@@ -115,7 +117,7 @@ namespace Global_Physical_Variables
   
   /// Capillary number (of which the results are independent
   /// for a pinned surface)
-  double Ca = 1.0;
+  double Ca = 0.1;//1.0;
   
   /// In our non-dimensionalisation, we have a
   /// Reynolds number/ Froude number squared in
@@ -127,13 +129,13 @@ namespace Global_Physical_Variables
   //--------------------------
   
   /// Marangoni number
-  double Ma = 8.0;
+ double Ma = 0.1; //8.0;
 
   /// Surface Elasticity number (Capillary number x Marangoni number)
   double Beta_s =Ca*Ma;
 
   /// Surface Peclet number
-  double Pe_s = 1.0e8; //10.0;
+ double Pe_s = 10.0; //1.0e8; 
   
   /// Bulk Peclet number
   double Pe_b = 100.0;
@@ -145,10 +147,10 @@ namespace Global_Physical_Variables
   //-------------------------
  
   /// Biot number
- double Biot = 1.0; 
+ double Biot = 0.01; //1.0; 
   
   /// The ratio of adsorption-desorption times
-  double K_b = 1.0;
+ double K_b = 0.5; //1.0;
 
   // ratio of equilibrium concentrations
   double Beta_b = 1.0;
@@ -329,27 +331,6 @@ class DependentPositionPointElement : public virtual SolidPointElement,
     //Read out the Lagrange multiplier
     const double lambda = nod_pt->value(lm_index);
     
-    //Add Lagrange multipier contribution to solid mechanics first
-    
-    //ALH Not sure this is needed
-    
-    //Get the local equation for the master node
-    /*local_eqn = this->position_local_eqn(0,0,1);
-    if(local_eqn >=0)
-     {
-      residuals[local_eqn] = lambda;
-      
-      if(flag)
-       {
-        int local_unknown = this->nodal_local_eqn(0,lm_index);
-        if(local_unknown >= 0)
-         {
-          jacobian(local_eqn,local_unknown) = 1.0;
-         }
-       }
-       }*/
-
-    
     //Get the local equation for the dependent node,
     //This is the node that the Lagrange multiplier should be affecting
     local_eqn = this->external_local_eqn(0,1);
@@ -490,67 +471,6 @@ public:
           allow_automatic_creation_of_vertices_on_boundaries,
           comm_pt) {}
 
- void snap_nodes_onto_boundary(RefineableTriangleMesh<ELEMENT>*& new_mesh_pt,
-                               const unsigned& b)
-  {
-   std::cout << "Custom snap algorithm\n";
-   //Call the standard function
-   RefineableTriangleMesh<ELEMENT>::snap_nodes_onto_boundary(new_mesh_pt,b);
-   //Now adjust the periodic boundries
-   std::cout << "Completed standard snap\n";
-   
-       //Now we need to make the boundaries periodic. Boundary 1 is made periodic from Boundary 3
-    //Let's load in the boundary nodes
-    Vector<Node*> boundary_nodes1, boundary_nodes3;
-    unsigned n_boundary_node1 = new_mesh_pt->nboundary_node(1);
-    unsigned n_boundary_node3 = new_mesh_pt->nboundary_node(3);
-
-     
-    std::cout << "Snap boundaries " << n_boundary_node1 << " " << n_boundary_node3  << std::endl;
-    
-    if(n_boundary_node1 != n_boundary_node3)
-     {
-      std::ostringstream error_message;
-      error_message << "Different numbers of nodes on putative periodic boundary, "
-                    << n_boundary_node1 << " " << n_boundary_node3 << "\n";
-      throw OomphLibError(error_message.str(),
-                          "snap_nodes_onto_boundary()",
-                          OOMPH_EXCEPTION_LOCATION);
-     }
-    
-    
-    for(unsigned n=0;n<n_boundary_node1;++n)
-     {boundary_nodes1.push_back(new_mesh_pt->boundary_node_pt(1,n));}
-    for(unsigned n=0;n<n_boundary_node3;++n)
-     {boundary_nodes3.push_back(new_mesh_pt->boundary_node_pt(3,n));}
-    
-    //Sort them
-    std::sort(boundary_nodes1.begin(),boundary_nodes1.end(),CompareNodeCoordinates());
-    std::sort(boundary_nodes3.begin(),boundary_nodes3.end(),CompareNodeCoordinates());
-
-    //Let's adjust the nodal positions to be the averages
-    for(unsigned n=0;n<n_boundary_node1;++n)
-     {
-      double y1 = boundary_nodes1[n]->x(1);
-      double y3 = boundary_nodes3[n]->x(1);
-
-      double average_y = 0.5*(y1 + y3);
-
-      boundary_nodes1[n]->x(1) = average_y;
-      boundary_nodes3[n]->x(1) = average_y;
-
-                                        
-      std::cout << n << " " << boundary_nodes1[n]->x(1) << " " << boundary_nodes3[n]->x(1)
-                << " " << 0.5*(boundary_nodes1[n]->x(1) + boundary_nodes3[n]->x(1)) << "\n";
-      
-      if(boundary_nodes1[n]->is_on_boundary(4))
-       {std::cout << "1 " << n << " " << boundary_nodes1[n]->x(1) << "\n";}
-      if(boundary_nodes3[n]->is_on_boundary(4))
-       {std::cout << "3 " << n << " " << boundary_nodes3[n]->x(1) << "\n";}
-       }
-
-   
-  }
 
 
  //Helper function for the custom update of the nodes on the p-th  PSLG of
@@ -794,39 +714,8 @@ public:
      //Add the common nodes to each boundary
      add_common_nodes_to_boundary_vector(polygon_pt,1,vertical_coordinates,vector_vertex_node1);
      add_common_nodes_to_boundary_vector(polygon_pt,3,vertical_coordinates,vector_vertex_node3);
-     
-     //Let's check
-     {
-      n_vertex1 = vector_vertex_node1.size();
-      for(unsigned i=0;i<n_vertex1;++i)
-       {
-        std::cout << vector_vertex_node1[i][0] << " "
-                  << vector_vertex_node1[i][1] << "\n";
-       }
-
-           std::cout << "============\n";
-      n_vertex3 = vector_vertex_node3.size();
-      for(unsigned i=0;i<n_vertex3;++i)
-       {
-        std::cout << vector_vertex_node3[i][0] << " "
-                  << vector_vertex_node3[i][1] << "\n";
-       }
-     }
-     std::cout << "============\n";
-
-     //Now allocate the new vertex nodes to the polyline
-     
-     
-     
-     
     }
-   
 
-   //Now let's see what we have
-   std::cout << "Polyline 1\n";
-   polyline1_pt->output(std::cout);
-   std::cout << "Polyline 3\n";
-   polyline3_pt->output(std::cout);
   }
 
   
@@ -921,11 +810,10 @@ public:
             //Check that the Lagrange multiplier has been allocated
             if(n_value > 0)
              {
-              std::cout << "I have had a LM allocated ";
               unsigned periodic_lm_index =
                dynamic_cast<BoundaryNodeBase*>(nod_pt)
                ->index_of_first_value_assigned_by_face_element(Periodic_index);
-               std::cout << periodic_lm_index << "\n";
+
                //Pin this lagrange multiplier
                nod_pt->unpin(periodic_lm_index);
              }
@@ -945,8 +833,14 @@ public:
 	  for(unsigned n=0;n<n_node;++n)
 	    {
 	      el_pt->node_pt(n)->unpin(2); //Bulk Concentration
-	      el_pt->node_pt(n)->pin(3);
-              //el_pt->node_pt(n)->unpin(3); //Micelle Concentration
+              if(Control_Parameters::Pin_Micelle)
+               {
+                el_pt->node_pt(n)->pin(3); //Pin micelle concentration
+               }
+              else
+               {
+                el_pt->node_pt(n)->unpin(3); //Micelle Concentration
+               }
 	    }
 	   }
 
@@ -1230,11 +1124,21 @@ public:
 
     //Need to create the monitor node again (use a different criterion in general)
     {
-     unsigned n_surface_element = Surface_mesh_pt->nelement();
-     
-     Monitor_node_pt = Surface_mesh_pt->finite_element_pt(n_surface_element/2)->node_pt(1);
+     //Choose one of the boundary nodes otherwise gets too tricky
+     //Loop over nodes on the surface
+     unsigned n_node = Bulk_mesh_pt->nboundary_node(4);
+     for(unsigned n=0;n<n_node;++n)
+      {
+       Node* node_pt = Bulk_mesh_pt->boundary_node_pt(4,n);
+       //Choose the right hand edge
+       if(node_pt->is_on_boundary(1))
+        {
+         Monitor_node_pt = node_pt;
+         break;
+        }
+      }
     }
-    
+  
  
     
     // Loop over bulk elements in upper fluid 
@@ -1250,6 +1154,7 @@ public:
      for(unsigned n=0;n<n_el_node;++n)
        {
 	 Node* const nod_pt = el_pt->node_pt(n);
+         //For all nodes that are not on the boundary
 	 if(nod_pt->is_on_boundary(4) == false)
 	   {
 	     //Set all the history values to zero as well
@@ -1282,8 +1187,19 @@ public:
 	  {
 	    Node* const nod_pt = el_pt->node_pt(n);
 	    if(!(nod_pt->is_constrained(2))) {nod_pt->unpin(2);}
-	    if(!(nod_pt->is_constrained(3))) {nod_pt->pin(3);}
-	      //{nod_pt->unpin(3);}
+	    if(!(nod_pt->is_constrained(3)))
+             {
+              if(Control_Parameters::Pin_Micelle)
+               {
+                //Pin micelle concentration
+                nod_pt->pin(3);
+               }
+              else
+               {
+                //unpin micelle concentration
+                nod_pt->unpin(3);
+               }
+             }
 	  }
       }
    
@@ -2026,7 +1942,7 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
   // the connection is done with the outflow boundary
   interface_polyline_pt->connect_final_vertex_to_polyline(
    dynamic_cast<TriangleMeshPolyLine*>(boundary_polyline_pt[2]),n_y2/*1*/);
-
+ 
   Vector<TriangleMeshCurveSection*> interface_curve_pt(1);
   interface_curve_pt[0] = interface_polyline_pt;
   
@@ -2090,7 +2006,17 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  Bulk_mesh_pt->max_permitted_error() = 1.0e-3;
  Bulk_mesh_pt->min_permitted_error() = 1.0e-5;
  
+ //Set the refinement tolerance for the interface
+ interface_polyline_pt->set_refinement_tolerance(0.08);
+ interface_polyline_pt->set_unrefinement_tolerance(0.01);
+ //Need to be consistent on the side walls
+ for(unsigned i=0;i<4;++i)
+  {
+   boundary_polyline_pt[i]->set_refinement_tolerance(0.08);
+   boundary_polyline_pt[i]->set_unrefinement_tolerance(0.01);
+  }
 
+ 
  // Define a constitutive law for the solid equations: generalised Hookean
  Constitutive_law_pt = new GeneralisedHookean(&Global_Physical_Variables::Nu);
  
@@ -2221,12 +2147,22 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  //upper or lower elements
  create_interface_elements();
  //Setup the monitor node
-  {
-    unsigned n_surface_element = Surface_mesh_pt->nelement();
-    
-    Monitor_node_pt = Surface_mesh_pt->finite_element_pt(n_surface_element/2)->node_pt(1);
-  }
-
+ {
+  //Choose one of the boundary nodes otherwise gets too tricky
+  //Loop over nodes on the surface
+  unsigned n_node = Bulk_mesh_pt->nboundary_node(4);
+  for(unsigned n=0;n<n_node;++n)
+   {
+    Node* node_pt = Bulk_mesh_pt->boundary_node_pt(4,n);
+    //Choose the right hand edge
+    if(node_pt->is_on_boundary(1))
+     {
+      Monitor_node_pt = node_pt;
+      break;
+     }
+   }
+ }
+  
   //Making periodic boundaries is a bit more involved for an unstructured mesh 
   if(Control_Parameters::Periodic_BCs)
    {
@@ -2281,10 +2217,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
            //Check that the Lagrange multiplier has been allocated
            if(n_value > 0)
             {
-             std::cout << "I have had a LM allocated ";
              unsigned periodic_lm_index = dynamic_cast<BoundaryNodeBase*>(nod_pt)
              ->index_of_first_value_assigned_by_face_element(Periodic_index);
-             std::cout << periodic_lm_index << "\n";
              //Pin this lagrange multiplier
              nod_pt->pin(periodic_lm_index);
             }
@@ -2365,9 +2299,15 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    unsigned n_el_node = el_pt->nnode();
    for(unsigned n=0;n<n_el_node;++n)
      {
-       el_pt->node_pt(n)->unpin(2); //unpin
-       //el_pt->node_pt(n)->unpin(3); //unpin
-       el_pt->node_pt(n)->pin(3); //pin micelle concentration
+       el_pt->node_pt(n)->unpin(2); //unpin surfactant
+       if(Control_Parameters::Pin_Micelle)
+        {
+         el_pt->node_pt(n)->pin(3); //pin micelle concentration
+        }
+       else
+        {
+         el_pt->node_pt(n)->unpin(3); //unpin micelle concentration
+        }
        el_pt->node_pt(n)->pin(4); //Pin Lagrange Multiplier initially
      }
 
@@ -2433,9 +2373,16 @@ void SurfactantProblem<ELEMENT,INTERFACE_ELEMENT>::set_boundary_conditions(
  //Set initial temperature profile
  if(time <= 0.0)
   {
-    const double Gamma_init = 0.75;
-    const double C_init = Gamma_init/(Global_Physical_Variables::K_b*(1.0-Gamma_init));
-    unsigned n_lower = Bulk_mesh_pt->nlower();//nnode();
+   const double Gamma_init = 0.5; //0.1; //0.75;
+   const double C_init = Gamma_init/(Global_Physical_Variables::K_b*(1.0-Gamma_init));
+   double M_init = 0.0; 
+   //If not pinning the micelle concentration then set the initial value 
+   if(!Control_Parameters::Pin_Micelle)
+    {
+     M_init = pow(C_init,Global_Physical_Variables::N);
+    }
+    
+    unsigned n_lower = Bulk_mesh_pt->nlower();
     for(unsigned e=0;e<n_lower;e++)
       {
 	FiniteElement* el_pt =
@@ -2448,7 +2395,7 @@ void SurfactantProblem<ELEMENT,INTERFACE_ELEMENT>::set_boundary_conditions(
 	    //Be careful about upper and lower layers
 	    //If these are not set 
 	    nod_pt->set_value(2,C_init); 
-	    nod_pt->set_value(3,0.0);
+	    nod_pt->set_value(3,M_init); 
 	    
 	    //Set the velocityq
 	    /*double y = nod_pt->x(1);
@@ -2578,38 +2525,40 @@ double SurfactantProblem<ELEMENT,INTERFACE_ELEMENT>::global_temporal_error_norm(
 {
  //Temp
  double global_error = 0.0;
-   
- //Find out how many nodes there are in the problem
- unsigned long Nnode = Bulk_mesh_pt->nnode();
+
+ //Base the error norm on the interface motion
+ //Number of interface nodes
+ unsigned n_node = Bulk_mesh_pt->nboundary_node(4);
 
  //Loop over the nodes and calculate the errors in the positions
- for(unsigned long i=0;i<Nnode;i++)
+ for(unsigned long n=0;n<n_node;n++)
   {
+   Node* node_pt = Bulk_mesh_pt->boundary_node_pt(4,n);
+   
    //Find number of dimensions of the node
-   unsigned Ndim = Bulk_mesh_pt->node_pt(i)->ndim();
+   unsigned n_dim = node_pt->ndim();
    //Set the position error to zero
    double node_position_error = 0.0;
-   //Loop over the dimensions (only need j=1)
-   //for(unsigned j=0;j<Ndim;j++)
-   unsigned j=1;
+   //Loop over the dimensions 
+   for(unsigned j=0;j<n_dim;j++)
    {
      //Get position error
      double error = 
-      Bulk_mesh_pt->node_pt(i)->position_time_stepper_pt()->
-      temporal_error_in_position(Bulk_mesh_pt->node_pt(i),j);
+      node_pt->position_time_stepper_pt()->
+      temporal_error_in_position(node_pt,j);
 
      //Add the square of the individual error to the position error
      node_position_error += error*error;
     }
     
    //Divide the position error by the number of dimensions
-   node_position_error /= Ndim;
+   node_position_error /= n_dim;
    //Now add to the global error
    global_error += node_position_error;
   }
    
    //Now the global error must be divided by the number of nodes
- global_error /= Nnode;
+ global_error /= n_node;
 
  //Return the square root of the errr
  return sqrt(global_error);
@@ -2669,7 +2618,7 @@ int main(int argc, char **argv)
  unsigned n_steps = 1000;
 
  //Set the freqency of refinement
- unsigned refine_after_n_steps = 3;
+ unsigned refine_after_n_steps = 5;
  
  //If we have a command line argument, perform fewer steps 
  //(used for self-test runs)
@@ -2687,7 +2636,7 @@ int main(int argc, char **argv)
     else
     {
      //Unsteady timestep (for fixed mesh)
-      dt_next = problem.adaptive_unsteady_newton_solve(dt,1.0e-6);
+     dt_next = problem.adaptive_unsteady_newton_solve(dt,1.0e-5);
     }
    dt = dt_next;
    problem.doc_solution(trace);
