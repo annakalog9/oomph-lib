@@ -383,12 +383,11 @@ public:
     //Find out the number of surface coordinates
     const unsigned el_dim = this->dim();
 
-    //Find the nodal dimension
-    const unsigned n_dim = this->node_pt(0)->ndim();
+    const unsigned n_dim = this->nodal_dimension();
     
     //Storage for the Shape functions
     Shape psif(n_node);
-
+    
     //Storage for the local coordinate
     Vector<double> s(el_dim);
     
@@ -397,10 +396,6 @@ public:
 
     //Storage for answer
     double norm = 0.0;
-
-    //Work out x distance, assuming this is a line element
-    //which it is
-    double scale = (this->node_pt(n_node-1)->x(0) - this->node_pt(0)->x(0))/2.0;
     
     //Loop over the integration points
     for(unsigned ipt=0;ipt<n_intpt;ipt++)
@@ -411,6 +406,9 @@ public:
 	//Get the integral weight
 	double W = this->integral_pt()->weight(ipt);
 
+        //Calculate the Jacobian of the mapping
+        double J = this->J_eulerian(s);
+        
 	//Call the derivatives of the shape function
 	this->shape_at_knot(ipt,psif);
     
@@ -430,7 +428,7 @@ public:
 	  }
 	
 	//Calculate the surface gradient and divergence
-	norm += (interpolated_x[1] - h0)*(interpolated_x[1] - h0)*W*scale;
+	norm += (interpolated_x[1] - h0)*(interpolated_x[1] - h0)*W*J;
       }
     //Return the computed norm
     return norm;
