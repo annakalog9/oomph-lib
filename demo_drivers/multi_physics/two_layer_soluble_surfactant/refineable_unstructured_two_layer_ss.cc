@@ -3,7 +3,7 @@
 //LIC// multi-physics finite-element library, available 
 //LIC// at http://www.oomph-lib.org.
 //LIC// 
-//LIC// Copyright (C) 2006-2022 Matthias Heil and Andrew Hazel
+//LIC// Copyright (C) 2006-2023 Matthias Heil and Andrew Hazel
 //LIC// 
 //LIC// This library is free software; you can redistribute it and/or
 //LIC// modify it under the terms of the GNU Lesser General Public
@@ -83,7 +83,7 @@ namespace Global_Physical_Variables
 {
   /// Geometry
   //----------------
-  double L = 2.4;//1.0;
+ double L = 1.0; //2.4;
 
   /// Fluid property Ratios
   //----------------------------
@@ -96,10 +96,10 @@ namespace Global_Physical_Variables
   //Vecosity ratio;
   /// Ratio of viscosity in upper fluid to viscosity in lower
   /// fluid. Reynolds number etc. is based on viscosity in lower fluid.
-  double M = 0.5;//17.0;
+ double M = 17.0; //0.5
 
   //Dimensionless position of interface (relative to a total domain height of 1)
-  double H0 = 1.0/11.0; //0.2;
+ double H0 = 0.2; //1.0/11.0;
 
   //Dimensionless size of perturbation to the interface
   double Ha = H0/5.0;
@@ -117,7 +117,7 @@ namespace Global_Physical_Variables
   
   /// Capillary number (of which the results are independent
   /// for a pinned surface)
-  double Ca = 0.1;//1.0;
+  double Ca = 1.0; //0.1;
   
   /// In our non-dimensionalisation, we have a
   /// Reynolds number/ Froude number squared in
@@ -129,13 +129,13 @@ namespace Global_Physical_Variables
   //--------------------------
   
   /// Marangoni number
- double Ma = 0.1; //8.0;
+ double Ma = 8.0; //0.1;
 
   /// Surface Elasticity number (Capillary number x Marangoni number)
   double Beta_s =Ca*Ma;
 
   /// Surface Peclet number
- double Pe_s = 10.0; //1.0e8; 
+ double Pe_s = 1.0e8; // 10.0; 
   
   /// Bulk Peclet number
   double Pe_b = 100.0;
@@ -147,13 +147,13 @@ namespace Global_Physical_Variables
   //-------------------------
  
   /// Biot number
- double Biot = 0.01; //1.0; 
+ double Biot = 1.0; //0.01; 
   
   /// The ratio of adsorption-desorption times
- double K_b = 0.5; //1.0;
+ double K_b = 1.0; //0.5; 
 
-  // ratio of equilibrium concentrations
-  double Beta_b = 1.0;
+ // ratio of equilibrium concentrations
+ double Beta_b = 1.0;
 
   // Reaction rate between bulk and micelle 
  double K_m = 0.0;
@@ -635,6 +635,15 @@ public:
 
     } //End of case if numbers of nodes are different
   } 
+
+ //Snap the nodes onto the boundary
+ void snap_nodes_onto_boundary(RefineableTriangleMesh<ELEMENT>*& new_mesh_pt,
+                               const unsigned& b)
+  {
+   //Just call the default version
+   RefineableSolidTriangleMesh<ELEMENT>::snap_nodes_onto_boundary(new_mesh_pt,b);
+  }
+
  
  //Custom override
  void update_polygon_custom(TriangleMeshPolygon*& polygon_pt)
@@ -653,64 +662,82 @@ public:
     }
 
    //If the periodic boundaries do not have the same number
-   //of nodes, then fix it so that they do
+   //of nodes in the same places, then create the common set
    unsigned n_vertex1 = polyline1_pt->nvertex();
    unsigned n_vertex3 = polyline3_pt->nvertex();
+   
+   //Need to create the vector of vertex nodes
+   Vector<Vector<double> > vector_vertex_node1(n_vertex1);
+   Vector<Vector<double> > vector_vertex_node3(n_vertex3);
+   
+   //Let's find a common set of vertical coordinates
+   std::set<double> vertical_coordinates;
+   for(unsigned n=0;n<n_vertex1;++n)
+    {
+     //Push it back
+     vector_vertex_node1[n] = polyline1_pt->vertex_coordinate(n);
+     vertical_coordinates.insert(polyline1_pt->vertex_coordinate(n)[1]);
+    }
+   for(unsigned n=0;n<n_vertex3;++n)
+    {
+     vector_vertex_node3[n] = polyline3_pt->vertex_coordinate(n);
+     vertical_coordinates.insert(polyline3_pt->vertex_coordinate(n)[1]);
+    }
 
+   {
+    //Include a check for repeated nodes within a tolerance error
+    //The idea is to collect nodes that are within the tolerance and then merge them
+    //There should only ever be two nodes within a tolerance error
+    std::set<double>::iterator it=vertical_coordinates.begin();
+    while(it!=vertical_coordinates.end())
+     {
+      //Loop over the other elements in the set, starting at the current point
+      for(std::set<double>::iterator it2=std::next(it,1);it2!=vertical_coordinates.end();
+          ++it2)
+       {
+        const double y1 = *it;
+        const double y2 = *it2;
+        double dist = (y1-y2)*(y1-y2);
+        dist = sqrt(dist);
+        //If the two points are far enough apart then we're done
+        if(dist > ToleranceForVertexMismatchInPolygons::Tolerable_error)
+         {
+          break;
+         }
+        //Otherwise there should be only one node, erase the second one
+        else
+         {
+          vertical_coordinates.erase(it2);
+          break;
+         }
+       }
+      ++it;
+     }
+   }
+
+   //Boolen to indicate whether we need to adjust the nodes
+   bool adjust_nodes = false;
+   //If the number of nodes is different we must do something
    if(n_vertex1 != n_vertex3)
     {
      std::cout << "Different numbers of vertices across the periodic boundary:\n";
      std::cout << n_vertex1 << " on boundary 1 and " << n_vertex3 << " on boundary 3\n";
-     
-     //Need to create the vector of vertex nodes
-     Vector<Vector<double> > vector_vertex_node1(n_vertex1);
-     Vector<Vector<double> > vector_vertex_node3(n_vertex3);
-     
-     //Let's find a common set of vertical coordinates
-     std::set<double> vertical_coordinates;
-     for(unsigned n=0;n<n_vertex1;++n)
+     adjust_nodes = true;
+    }
+   else
+    {
+    //If the number of common nodes is bigger than the number on each boundary
+    //then they are not in the same location, so we also need to so something
+     if(vertical_coordinates.size() != n_vertex1)
       {
-       //Push it back
-       vector_vertex_node1[n] = polyline1_pt->vertex_coordinate(n);
-       vertical_coordinates.insert(polyline1_pt->vertex_coordinate(n)[1]);
+       std::cout << "Same number of vertices across the periodic boundary:\n";
+       std::cout << "but they are in different locations!\n";
+       adjust_nodes = true;
       }
-     for(unsigned n=0;n<n_vertex3;++n)
-      {
-       vector_vertex_node3[n] = polyline3_pt->vertex_coordinate(n);
-       vertical_coordinates.insert(polyline3_pt->vertex_coordinate(n)[1]);
-      }
+    }
 
-     {
-      //Include a check for repeated nodes within a tolerance error
-      //The idea is to collect nodes that are within the tolerance and then merge them
-      //There should only ever be two nodes within a tolerance error
-      std::set<double>::iterator it=vertical_coordinates.begin();
-      while(it!=vertical_coordinates.end())
-       {
-        //Loop over the other elements in the set, starting at the current point
-        for(std::set<double>::iterator it2=std::next(it,1);it2!=vertical_coordinates.end();
-            ++it2)
-         {
-          const double y1 = *it;
-          const double y2 = *it2;
-          double dist = (y1-y2)*(y1-y2);
-          dist = sqrt(dist);
-          //If the two points are far enough apart then we're done
-          if(dist > ToleranceForVertexMismatchInPolygons::Tolerable_error)
-           {
-            break;
-           }
-          //Otherwise there should be only one node, erase the second one
-          else
-           {
-            vertical_coordinates.erase(it2);
-            break;
-           }
-         }
-        ++it;
-        }
-     }
-
+   if(adjust_nodes)
+    {
      //Add the common nodes to each boundary
      add_common_nodes_to_boundary_vector(polygon_pt,1,vertical_coordinates,vector_vertex_node1);
      add_common_nodes_to_boundary_vector(polygon_pt,3,vertical_coordinates,vector_vertex_node3);
@@ -904,21 +931,23 @@ public:
     std::sort(boundary_nodes1.begin(),boundary_nodes1.end(),CompareNodeCoordinates());
     std::sort(boundary_nodes3.begin(),boundary_nodes3.end(),CompareNodeCoordinates());
     
-    //Now we can loop over the nodes and make them periodic:
-    for(unsigned n=0;n<n_boundary_node1;++n)
+
+    //Check that the nodes are aligned
+    /*for(unsigned n=0;n<n_boundary_node1;++n)
      {
       std::cout << n << " "  << boundary_nodes1[n]->x(1) << " " << boundary_nodes3[n]->x(1) << "\n";
      }
 
-    //Let's adjust the nodal positions
+    //Let's output the nodal positions
     for(unsigned n=0;n<n_boundary_node1;++n)
      {          
       if(boundary_nodes1[n]->is_on_boundary(4))
        {std::cout << "1 " << n << " " << boundary_nodes1[n]->x(1) << "\n";}
       if(boundary_nodes3[n]->is_on_boundary(4))
        {std::cout << "3 " << n << " " << boundary_nodes3[n]->x(1) << "\n";}
-     }
-        
+       }*/
+
+    //Now we can loop over the nodes and make them periodic
     for(unsigned n=0;n<n_boundary_node1;++n)
      {
       boundary_nodes1[n]->make_periodic(boundary_nodes3[n]);
@@ -941,11 +970,18 @@ public:
   {
     set_boundary_conditions(time_pt()->time());
     Bulk_mesh_pt->set_lagrangian_nodal_coordinates();
+    
    //Also set lagrange multipliers to zero
     unsigned n_boundary_node = Bulk_mesh_pt->nboundary_node(4);
     for(unsigned n=0;n<n_boundary_node;++n)
       {
-	Bulk_mesh_pt->boundary_node_pt(4,n)->set_value(5,0.0);
+       //Read out the node
+       Node* node_pt = Bulk_mesh_pt->boundary_node_pt(4,n);
+       unsigned index = dynamic_cast<BoundaryNodeBase*>(node_pt)
+        ->index_of_first_value_assigned_by_face_element(true,false,0);
+       //The Lagrange multiplier is one greater than the index assigned by the face element
+       //The first index is the interfacial surfactant concentration
+       Bulk_mesh_pt->boundary_node_pt(4,n)->set_value(index+1,0.0);
       }
 
     //Lagrange multipliers associated with the periodicity constraint
@@ -1482,6 +1518,7 @@ void deform_interface(const double &epsilon,
   }
 } // End of deform_free_surface
 
+ 
   
  /// Doc the solution.
  void doc_solution(std::ofstream &trace);
@@ -2005,16 +2042,21 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  // Set error targets for refinement
  Bulk_mesh_pt->max_permitted_error() = 1.0e-3;
  Bulk_mesh_pt->min_permitted_error() = 1.0e-5;
+
+ //Set a smaller minimum element size
+ Bulk_mesh_pt->min_element_size() = 0.001; //0.0001
+ //Set a smaller maximum element size as well
+ Bulk_mesh_pt->max_element_size() = 0.1;
  
  //Set the refinement tolerance for the interface
- interface_polyline_pt->set_refinement_tolerance(0.08);
- interface_polyline_pt->set_unrefinement_tolerance(0.01);
+ /*interface_polyline_pt->set_refinement_tolerance(0.05);
+ interface_polyline_pt->set_unrefinement_tolerance(0.001);
  //Need to be consistent on the side walls
  for(unsigned i=0;i<4;++i)
   {
-   boundary_polyline_pt[i]->set_refinement_tolerance(0.08);
-   boundary_polyline_pt[i]->set_unrefinement_tolerance(0.01);
-  }
+   boundary_polyline_pt[i]->set_refinement_tolerance(0.05);
+   boundary_polyline_pt[i]->set_unrefinement_tolerance(0.001);
+   }*/
 
  
  // Define a constitutive law for the solid equations: generalised Hookean
@@ -2027,8 +2069,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
  const unsigned n_lower = Bulk_mesh_pt->nlower();
 
 
- std::ofstream f_lower("lower.dat");
- std::ofstream f_upper("upper.dat");
+ //std::ofstream f_lower("lower.dat");
+ //std::ofstream f_upper("upper.dat");
  
  // Loop over bulk elements in lower fluid
  for(unsigned e=0;e<n_lower;e++)
@@ -2037,7 +2079,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
                                            lower_layer_element_pt(e));
 
-   el_pt->output(f_lower,2);
+   //Output element to the file, if required during debugging
+   //el_pt->output(f_lower,2);
    
    // Set the diffusivities number
    el_pt->diff_pt() = &Global_Physical_Variables::D;
@@ -2078,7 +2121,8 @@ SurfactantProblem(const bool &pin) : Surface_pinned(pin), Periodic_index(50)
    ELEMENT *el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->
                                            upper_layer_element_pt(e));
 
-   el_pt->output(f_upper,2);
+   //Output element to file if required during debugging
+   //el_pt->output(f_upper,2);
    
    // Set the diffusivities number
    el_pt->diff_pt() = &Global_Physical_Variables::D;
@@ -2373,7 +2417,7 @@ void SurfactantProblem<ELEMENT,INTERFACE_ELEMENT>::set_boundary_conditions(
  //Set initial temperature profile
  if(time <= 0.0)
   {
-   const double Gamma_init = 0.5; //0.1; //0.75;
+   const double Gamma_init = 0.1; //0.5; //0.1; //0.75;
    const double C_init = Gamma_init/(Global_Physical_Variables::K_b*(1.0-Gamma_init));
    double M_init = 0.0; 
    //If not pinning the micelle concentration then set the initial value 
@@ -2618,11 +2662,32 @@ int main(int argc, char **argv)
  unsigned n_steps = 1000;
 
  //Set the freqency of refinement
- unsigned refine_after_n_steps = 5;
+ unsigned refine_after_n_steps = 10;
  
  //If we have a command line argument, perform fewer steps 
  //(used for self-test runs)
  if(argc > 1) {n_steps = 5; refine_after_n_steps=3;}
+
+
+ 
+ //This is the code for reloading a previously dumped solution
+ //If you want to reload then uncomment this 
+ /* {
+   //The dumpfile must be renamed to restart_file.dat
+   std::ifstream restart_file("restart_file.dat");
+   bool unsteady_restart;
+   //Load the restart file
+   problem.read(restart_file,unsteady_restart);
+ 
+   //Note that paramater values are not saved in the restart file, so this will
+   //not work if the parameter values have been changed in the driver code.
+   //This can be modified if you want to dump all the parameters as well.
+
+   //The next value of dt may need to be adjusted for a restart.
+
+  }*/
+ 
+  
  
  //Perform n_steps timesteps
  for(unsigned i=0;i<n_steps;++i)
@@ -2640,6 +2705,9 @@ int main(int argc, char **argv)
     }
    dt = dt_next;
    problem.doc_solution(trace);
+   //Dump the most recently converged solution in a form suitable for restarts.
+   //This will be overwritten after each successful solution.
+   problem.dump("dumpfile.dat");
   }
 
 } // end of main

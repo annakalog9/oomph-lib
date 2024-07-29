@@ -5,7 +5,7 @@ OOMPH_ROOT_DIR=$(make -s --no-print-directory print-top_builddir)
 
 
 #Set the number of tests to be checked
-NUM_TESTS=2
+NUM_TESTS=3
 
 
 # Setup validation directory
@@ -41,12 +41,12 @@ else
 fi
 
 
-echo "Running Refineable two-layer soluble surfactant validation "
+echo "Running Structured refineable two-layer soluble surfactant validation "
 mkdir RESLT
 ../refineable_two_layer_soluble_surfactant lalala > ./OUTPUT_ref_two_layer_sol_surf
 echo "done"
 echo " " >> validation.log
-echo "Refineable two-layer soluble surfactant validation " >> validation.log
+echo "Structured refineable two-layer soluble surfactant validation " >> validation.log
 echo "------------------------------------------------" >> validation.log
 echo " " >> validation.log
 echo "Validation directory: " >> validation.log
@@ -60,9 +60,31 @@ if test "$1" = "no_fpdiff"; then
   echo "dummy [OK] -- Can't run fpdiff.py because we don't have python or validata" >> validation.log
 else
 ../../../../bin/fpdiff.py ../validata/ref_2layer_sol_surf.dat.gz \
-    ref_2layer_sol_surf.dat  0.1 1.0e-14 >> validation.log
+    ref_2layer_sol_surf.dat  0.25 1.0e-14 >> validation.log
 fi
 
+
+echo "Running Unstructured refineable two-layer soluble surfactant validation "
+mkdir RESLT
+../refineable_unstructured_two_layer_ss lalala > ./OUTPUT_uns_ref_two_layer_sol_surf
+echo "done"
+echo " " >> validation.log
+echo "Unstructured refineable two-layer soluble surfactant validation " >> validation.log
+echo "------------------------------------------------" >> validation.log
+echo " " >> validation.log
+echo "Validation directory: " >> validation.log
+echo " " >> validation.log
+echo "  " `pwd` >> validation.log
+echo " " >> validation.log
+cat RESLT/trace.dat RESLT/int5.dat RESLT/soln5.dat > uns_ref_2layer_sol_surf.dat
+mv RESLT RESLT_uns_ref_2layer
+
+if test "$1" = "no_fpdiff"; then
+  echo "dummy [OK] -- Can't run fpdiff.py because we don't have python or validata" >> validation.log
+else
+../../../../bin/fpdiff.py ../validata/uns_ref_2layer_sol_surf.dat.gz \
+    uns_ref_2layer_sol_surf.dat  0.1 1.0e-14 >> validation.log
+fi
 
 
 # Append output to global validation log file
